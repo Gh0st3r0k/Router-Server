@@ -103,7 +103,10 @@ namespace WANT.Service.Packets
                 var data = rawCap.Data;
                 if (data is null || data.Length < 14) return;
 
-                if (HasBridgeTag(data)) return; // уже наш
+                var ingressGuid = FindIngressGuidByDevice(sender as ICaptureDevice);
+                if (ingressGuid is null) return;
+
+                Console.WriteLine($"[PacketBridge] RX from {ingressGuid}, len={data.Length}");
 
                 var packet = Packet.ParsePacket(LinkLayers.Ethernet, data);
                 var eth = packet.Extract<EthernetPacket>();
@@ -114,17 +117,11 @@ namespace WANT.Service.Packets
 
                 if (isArp)
                 {
-                    // пока только факт определения ARP
-                    // Console.WriteLine("[PacketBridge] ARP detected");
+                    // Для ARP пока ничего не делаем (только RX залогирован)
                     return;
                 }
 
-                // кто приёмник?
-                var ingressGuid = FindIngressGuidByDevice(sender as ICaptureDevice);
-                if (ingressGuid is null) return;
-
-                var frameToSend = AddBridgeTag(data);
-
+                // НЕ ARP → шлём всем остальным интерфейсам
                 foreach (var kv in _opened)
                 {
                     if (string.Equals(kv.Key, ingressGuid, StringComparison.OrdinalIgnoreCase))
@@ -134,7 +131,8 @@ namespace WANT.Service.Packets
                     {
                         if (kv.Value is IInjectionDevice inj)
                         {
-                            inj.SendPacket(frameToSend);
+                            inj.SendPacket(data);
+                            Console.WriteLine($"[PacketBridge] TX to {kv.Key}, len={data.Length}");
                         }
                         else
                         {
@@ -152,6 +150,7 @@ namespace WANT.Service.Packets
                 Console.WriteLine($"[PacketBridge] OnPacket error: {ex}");
             }
         }
+
 
         private string? FindIngressGuidByDevice(ICaptureDevice? dev)
         {

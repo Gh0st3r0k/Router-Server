@@ -75,3 +75,5 @@ D:\STU\1semester\WANT_Project\Router-Server\Server\obj\Debug\net9.0\refint\Serve
 D:\STU\1semester\WANT_Project\Router-Server\Server\obj\Debug\net9.0\Server.pdb
 D:\STU\1semester\WANT_Project\Router-Server\Server\obj\Debug\net9.0\Server.genruntimeconfig.cache
 D:\STU\1semester\WANT_Project\Router-Server\Server\obj\Debug\net9.0\ref\Server.dll
+D:\STU\1semester\WANT_Project\Router-Server\Server\bin\Debug\net9.0\PacketDotNet.dll
+D:\STU\1semester\WANT_Project\Router-Server\Server\bin\Debug\net9.0\SharpPcap.dll
