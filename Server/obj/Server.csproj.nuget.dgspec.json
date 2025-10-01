@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\STU\\1semester\\WANT_server\\Server\\Server.csproj": {}
+    "D:\\STU\\1semester\\WANT_Project\\Router-Server\\Server\\Server.csproj": {}
   },
   "projects": {
-    "D:\\STU\\1semester\\WANT_server\\Server\\Server.csproj": {
+    "D:\\STU\\1semester\\WANT_Project\\Router-Server\\Server\\Server.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\STU\\1semester\\WANT_server\\Server\\Server.csproj",
+        "projectUniqueName": "D:\\STU\\1semester\\WANT_Project\\Router-Server\\Server\\Server.csproj",
         "projectName": "Server",
-        "projectPath": "D:\\STU\\1semester\\WANT_server\\Server\\Server.csproj",
+        "projectPath": "D:\\STU\\1semester\\WANT_Project\\Router-Server\\Server\\Server.csproj",
         "packagesPath": "C:\\Users\\gh0st\\.nuget\\packages\\",
-        "outputPath": "D:\\STU\\1semester\\WANT_server\\Server\\obj\\",
+        "outputPath": "D:\\STU\\1semester\\WANT_Project\\Router-Server\\Server\\obj\\",
         "projectStyle": "PackageReference",
         "fallbackFolders": [
           "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages",
@@ -55,6 +55,14 @@
             "Microsoft.AspNetCore.OpenApi": {
               "target": "Package",
               "version": "[9.0.9, )"
+            },
+            "PacketDotNet": {
+              "target": "Package",
+              "version": "[1.4.8, )"
+            },
+            "SharpPcap": {
+              "target": "Package",
+              "version": "[6.3.1, )"
             },
             "Swashbuckle.AspNetCore": {
               "target": "Package",

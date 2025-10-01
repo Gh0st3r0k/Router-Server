@@ -1,33 +1,63 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using WANT.Service;               // для InterfaceScanner
+using WANT.Service.Interface;     // для InterfaceSnapshotUpdater и моделей
+using WANT.Service.Packets;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Swagger
+// ── Swagger ─────────────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(o =>
 {
     o.SwaggerDoc("v1", new() { Title = "WANT API", Version = "v1" });
 });
 
+// !!! Контроллеры
+builder.Services.AddControllers()
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.Converters.Add(new WANT.Controller.Dto.IPAddressJsonConverter());
+    });
+
+// ── Регистрация фоновых служб (когда появятся классы) ──────────────────────────
+builder.Services.AddSingleton<InterfaceScanner>();        // хранилище интерфейсов
+builder.Services.AddHostedService<PortScannerWorker>();   // фоновые проверки каждые 5 сек
+builder.Services.AddHostedService<PacketBridgeWorker>();
+
 var app = builder.Build();
 
-// Swagger UI
+// ── Swagger UI ──────────────────────────────────────────────────────────────────
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "WANT API v1");
-    // Чтобы UI открывался прямо на корне:
+    // Чтобы Swagger UI открывался на корне — раскомментируй:
     // c.RoutePrefix = string.Empty;
 });
 
-// Проверка Ethernet портов при старте
-NicDebugger.PrintPhysicalEthernet();
+// ── Хуки жизненного цикла ───────────────────────────────────────────────────────
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    // Тут вызывать параллельные процессы (разовые/краткоживущие), например:
+    // Task.Run(() => ParallelJobs.SyncRouterPortsAsync(app.Services, CancellationToken.None));
+    // Task.Run(() => ParallelJobs.WarmupAsync(app.Services, CancellationToken.None));
 
-// тестовый эндпоинт
-app.MapGet("/api/ping", () =>
-    Results.Ok(new { status = "ok", time = DateTime.UtcNow }))
-   .WithName("Ping");
+    // Проверка Ethernet портов при старте (если нужно выполнить один раз):
+    // NicDebugger.PrintPhysicalEthernet();
+});
+
+// var hosted = app.Services.GetServices<IHostedService>();
+// Console.WriteLine("[Program] Registered IHostedService:");
+// foreach (var hs in hosted)
+// {
+//     Console.WriteLine(" - " + hs.GetType().FullName);
+// }
+
+// Console.WriteLine("[Program] app built, starting web host…");
+
+// !!! Маршрутизация контроллеров
+app.MapControllers();
 
 app.Run();
