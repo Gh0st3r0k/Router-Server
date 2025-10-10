@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Server.Services.Packets;
 using WANT.Service;               // для InterfaceScanner
 using WANT.Service.Interface;     // для InterfaceSnapshotUpdater и моделей
 using WANT.Service.Packets;
@@ -22,9 +23,25 @@ builder.Services.AddControllers()
     });
 
 // ── Регистрация фоновых служб (когда появятся классы) ──────────────────────────
-builder.Services.AddSingleton<InterfaceScanner>();        // хранилище интерфейсов
 builder.Services.AddHostedService<PortScannerWorker>();   // фоновые проверки каждые 5 сек
-builder.Services.AddHostedService<PacketBridgeWorker>();
+builder.Services.AddSingleton<ArpCache>();             // ⬅️ кэш
+
+// Хранилище интерфейсов
+builder.Services.AddSingleton<InterfaceScanner>();
+
+// Сам воркер как singleton, чтобы можно было инжектить по типу PacketBridgeWorker
+builder.Services.AddSingleton<PacketBridgeWorker>();
+
+// И тот же инстанс запустить как фоновой сервис
+builder.Services.AddHostedService(sp => sp.GetRequiredService<PacketBridgeWorker>());
+
+// ARP-сервис
+builder.Services.AddSingleton<
+    WANT.Service.Packets.IArpService,
+    WANT.Service.Packets.ArpService
+>();
+
+
 
 var app = builder.Build();
 

@@ -24,9 +24,22 @@ namespace WANT.Service.Packets
     public sealed class PacketBridgeWorker : BackgroundService
     {
         private readonly InterfaceScanner _store;
+
+        private readonly ArpCache _arpCache;
         private readonly ConcurrentDictionary<string, ICaptureDevice> _opened = new(StringComparer.OrdinalIgnoreCase);
 
-        public PacketBridgeWorker(InterfaceScanner store) => _store = store;
+        public ConcurrentDictionary<string, ICaptureDevice> OpenedDevices => _opened;
+
+        
+        public bool TryGetDevice(string nicId, out ICaptureDevice dev)
+            => _opened.TryGetValue(nicId, out dev!);
+
+        public PacketBridgeWorker(InterfaceScanner store, ArpCache arpCache)
+        {
+            _store = store;
+            _arpCache = arpCache;             
+        }
+
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -88,7 +101,7 @@ namespace WANT.Service.Packets
                 dev.Open(DeviceModes.Promiscuous, read_timeout: 1000);
 
                 // ⚠️ Видим только ARP-запросы (who-has)
-                dev.Filter = "arp and arp[6:2] = 1";
+                dev.Filter = "arp";
 
                 dev.OnPacketArrival += Device_OnPacketArrival;
                 dev.StartCapture();
@@ -125,6 +138,30 @@ namespace WANT.Service.Packets
 
                 var arp = packet.Extract<ArpPacket>();
                 if (arp is null) return;
+
+                // УЧИМСЯ ТОЛЬКО ИЗ REPLY
+                if (arp.Operation == ArpOperation.Response)
+                {
+                    var senderIp  = arp.SenderProtocolAddress;
+                    var senderMac = arp.SenderHardwareAddress ?? eth.SourceHardwareAddress;
+
+                    if (TryGetNicMac_FromSystem(ingressGuid, out var ourMacSub) &&
+                        senderMac != null && senderMac.Equals(ourMacSub))
+                        return;
+
+                    if (TryGetNicIpsV4_FromStore(ingressGuid, out var ourIpsSub) &&
+                        senderIp != null && ourIpsSub.Contains(senderIp))
+                        return;
+
+                    if (IsValidHostIp(senderIp) && senderMac != null && !senderMac.Equals(PhysicalAddress.None))
+                    {
+                        _arpCache.Learn(senderIp, senderMac, ingressGuid);
+                        // Console.WriteLine($"[ARP][LEARN] {senderIp} -> {senderMac} on {ingressGuid}");
+                    }
+                    return; // reply обработан, дальше не отвечаем
+                }
+
+
 
                 // Только ARP-запрос (who-has)
                 if (arp.Operation != ArpOperation.Request) return;
@@ -406,5 +443,15 @@ namespace WANT.Service.Packets
             }
             return null;
         }
+
+        private static bool IsValidHostIp(IPAddress? ip)
+        {
+            if (ip is null) return false;
+            if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+            if (ip.Equals(IPAddress.Any)) return false;            // 0.0.0.0 (probe) — можно игнорить
+            if (ip.Equals(IPAddress.Broadcast)) return false;      // 255.255.255.255
+            return true;
+        }
+
     }
 }
