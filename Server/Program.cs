@@ -41,9 +41,11 @@ builder.Services.AddSingleton<
     WANT.Service.Packets.ArpService
 >();
 
-
+builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
+    p.AllowAnyOrigin().AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
+
 
 // ── Swagger UI ──────────────────────────────────────────────────────────────────
 app.UseSwagger();
@@ -75,6 +77,9 @@ app.Lifetime.ApplicationStarted.Register(() =>
 // Console.WriteLine("[Program] app built, starting web host…");
 
 // !!! Маршрутизация контроллеров
+
+app.UseCors();
+
 app.MapControllers();
 
 app.Run();
