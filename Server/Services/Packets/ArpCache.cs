@@ -78,5 +78,24 @@ namespace WANT.Service.Packets
         }
 
         public void Dispose() => _janitor.Dispose();
+
+
+
+        public bool TryGet(IPAddress ip, string nicId, out PhysicalAddress mac)
+        {
+            mac = PhysicalAddress.None;
+
+            if (_map.TryGetValue(ip, out var entry))
+            {
+                // проверяем, что запись относится к нужному интерфейсу
+                if (string.Equals(entry.NicId, nicId, StringComparison.OrdinalIgnoreCase))
+                {
+                    mac = entry.Mac;
+                    return true;
+                }
+            }
+
+            return false;
+        }
     }
 }

@@ -5,6 +5,8 @@ using Server.Services.Packets;
 using WANT.Service;               // для InterfaceScanner
 using WANT.Service.Interface;     // для InterfaceSnapshotUpdater и моделей
 using WANT.Service.Packets;
+using WANT.Service.Routing;
+
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +30,12 @@ builder.Services.AddSingleton<ArpCache>();             // ⬅️ кэш
 
 // Хранилище интерфейсов
 builder.Services.AddSingleton<InterfaceScanner>();
+
+// Таблица маршрутизации
+builder.Services.AddSingleton<IRoutingTable, RoutingTable>();
+
+// Сервис маршрутизации (с “реверсным” next-hop)
+builder.Services.AddSingleton<IRoutingService, RoutingService>();
 
 // Сам воркер как singleton, чтобы можно было инжектить по типу PacketBridgeWorker
 builder.Services.AddSingleton<PacketBridgeWorker>();
