@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 using WANT.Service.Interface;
 using WANT.Service.Routing;             // ✅ добавили
 using System.Net.Sockets;              // ← для AddressFamily
-
+using WANT.Service.Rip;
 
 
 using PacketDotNet;                     // ArpPacket, ArpOperation, EthernetPacket, EthernetType, IPv4Packet
@@ -32,10 +32,11 @@ namespace WANT.Service.Packets
 
         private readonly InterfaceScanner _store;
         private readonly ArpCache _arpCache;
-        private readonly IRoutingService _routingService;   // ✅ добавили
+        private readonly IRoutingService _routingService;
+        private readonly IRipService _ripService;   // ✅ добавили
 
         private readonly ConcurrentDictionary<string, ICaptureDevice> _opened = new(StringComparer.OrdinalIgnoreCase);
-        private static readonly PhysicalAddress BroadcastMac =
+        public static readonly PhysicalAddress BroadcastMac =
             new PhysicalAddress(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF });
 
         public ConcurrentDictionary<string, ICaptureDevice> OpenedDevices => _opened;
@@ -43,14 +44,30 @@ namespace WANT.Service.Packets
         public bool TryGetDevice(string nicId, out ICaptureDevice dev)
             => _opened.TryGetValue(nicId, out dev!);
 
+
+        // включён ли Proxy ARP на интерфейсе (GUID без скобок, Upper)
+        private readonly ConcurrentDictionary<string, bool> _proxyArpEnabled =
+            new(StringComparer.OrdinalIgnoreCase);
+
         public PacketBridgeWorker(
             InterfaceScanner store,
             ArpCache arpCache,
-            IRoutingService routingService)          // ✅ ДОБАВИЛСЯ параметр
+            IRoutingService routingService,
+            IRipService ripService)          // ✅ ДОБАВИЛСЯ параметр
         {
             _store = store;
             _arpCache = arpCache;
             _routingService = routingService;
+            _ripService = ripService;
+
+            // По умолчанию включаем Proxy ARP для всех известных Ethernet-интерфейсов
+            foreach (var ni in _store.GetAll())
+            {
+                if (ni.Type != NicType.Ethernet) continue;
+                var id = ni.Guid?.Trim('{', '}').ToUpperInvariant();
+                if (string.IsNullOrWhiteSpace(id)) continue;
+                _proxyArpEnabled.TryAdd(id, true);
+            }
         }
 
 
@@ -101,6 +118,12 @@ namespace WANT.Service.Packets
 
             // open new
             foreach (var guid in want) TryOpen(guid);
+
+            // Обновляем словарь Proxy ARP: по умолчанию ВКЛЮЧЁН и для новых интерфейсов
+            foreach (var guid in want)
+            {
+                _proxyArpEnabled.TryAdd(guid, true);
+            }
         }
 
         private void TryOpen(string guidUpper)
@@ -223,14 +246,23 @@ namespace WANT.Service.Packets
                 TryGetNicIpsV4_FromStore(ingressGuid, out var ourIps) &&
                 ourIps.Contains(targetIp);
 
+            // Флаг Proxy ARP с учётом настройки (по умолчанию true)
+            bool proxyAllowed = IsProxyArpEnabled(ingressGuid);
+
             bool shouldProxy = false;
 
             // ---- 2.2: Proxy ARP — IP не наш, но ДО КОГО-ТО есть маршрут ----
-            if (!weOwnTarget)
+            if (!weOwnTarget && proxyAllowed)
             {
                 var decision = _routingService.Resolve(targetIp);
-                // ❗ Прокси включаем ВСЕГДА, если есть хоть какой-то маршрут
-                if (decision.Route != null)
+                // Proxy ARP имеет смысл только если:
+                //  - есть маршрут
+                //  - маршрут уходит через ДРУГОЙ интерфейс (иначе мы притворимся хостом в той же сети)
+                if (decision.Route != null &&
+                    !string.IsNullOrWhiteSpace(decision.OutInterfaceName) &&
+                    !decision.OutInterfaceName.Equals(
+                        ingressGuid,
+                        StringComparison.OrdinalIgnoreCase))
                 {
                     shouldProxy = true;
                 }
@@ -283,6 +315,20 @@ namespace WANT.Service.Packets
             var ip = packet.Extract<IPv4Packet>();
             if (ip is null) return;
 
+            // ---- RIPv2: UDP/520 ----
+            if (ip.Protocol == PacketDotNet.ProtocolType.Udp)
+            {
+                var udp = packet.Extract<UdpPacket>();
+                if (udp != null && (udp.SourcePort == 520 || udp.DestinationPort == 520))
+                {
+                    var ingressId = ingressGuid;
+                    _ripService.HandleIncomingRipPacket(ingressId, ip, udp);
+                    // RIPv2-пакеты НЕ маршрутизируем дальше как обычный трафик
+                    return;
+                }
+            }
+
+
             // 🔥 Фильтр: игнорируем пакеты, которые мы сами отправили с этого интерфейса
             if (TryGetNicMac_FromSystem(ingressGuid, out var ourMacIn) &&
                 eth.SourceHardwareAddress != null &&
@@ -331,7 +377,7 @@ namespace WANT.Service.Packets
 
             // ---- 2) Декремент TTL ----
             ip.TimeToLive--;
-            ip.UpdateCalculatedValues();
+            ip.Checksum = ip.CalculateIPChecksum();
 
             // ---- 3) ARP для конечного next-hop-а ----
             if (!_arpCache.TryGet(nextHopIp, egressGuid, out var nextHopMac))
@@ -662,5 +708,64 @@ namespace WANT.Service.Packets
             dev.SendPacket(eth);
         }
 
+        // уже есть: private bool TryGetNicMac_FromSystem(string guidUpper, out PhysicalAddress mac)
+
+        public static bool TryGetNicMacStatic(string guidUpper, out PhysicalAddress mac)
+        {
+            // можно просто продублировать ту же логику, что и в TryGetNicMac_FromSystem
+            mac = PhysicalAddress.None;
+            var ni = NetworkInterface.GetAllNetworkInterfaces()
+                .FirstOrDefault(n =>
+                    n.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&
+                    string.Equals(n.Id.Trim('{', '}').ToUpperInvariant(), guidUpper, StringComparison.OrdinalIgnoreCase));
+
+            if (ni is null) return false;
+
+            mac = ni.GetPhysicalAddress();
+            return mac != null && !mac.Equals(PhysicalAddress.None);
+        }
+
+
+
+
+
+        /// <summary>
+        /// Включить/выключить Proxy ARP на интерфейсе (GUID / имя из UI).
+        /// </summary>
+        public void SetProxyArp(string interfaceId, bool enabled)
+        {
+            var id = interfaceId?.Trim('{', '}').ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(id)) return;
+
+            _proxyArpEnabled[id] = enabled;
+            Console.WriteLine($"[ProxyARP] {id} -> {(enabled ? "ENABLED" : "DISABLED")}");
+        }
+
+        /// <summary>
+        /// Узнать, включён ли Proxy ARP на интерфейсе. По умолчанию = true.
+        /// </summary>
+        public bool IsProxyArpEnabled(string interfaceId)
+        {
+            var id = interfaceId?.Trim('{', '}').ToUpperInvariant();
+            if (string.IsNullOrWhiteSpace(id)) return true;
+
+            return !_proxyArpEnabled.TryGetValue(id, out var enabled) || enabled;
+        }
+
+        /// <summary>
+        /// Для UI: список интерфейсов и их состояния Proxy ARP.
+        /// </summary>
+        public IReadOnlyCollection<(string InterfaceId, bool Enabled)> GetProxyArpStates()
+        {
+            return _proxyArpEnabled
+                .Select(kv => (kv.Key, kv.Value))
+                .OrderBy(t => t.Key)
+                .ToList()
+                .AsReadOnly();
+        }
+
+
+
     }
+    
 }

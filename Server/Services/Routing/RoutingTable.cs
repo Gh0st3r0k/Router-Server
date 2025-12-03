@@ -10,60 +10,98 @@ namespace WANT.Service.Routing
         IReadOnlyCollection<RouteEntry> GetAll();
     }
 
-    /// <summary>
-    /// Простая таблица маршрутизации в памяти.
-    /// </summary>
     public class RoutingTable : IRoutingTable
     {
         private readonly List<RouteEntry> _routes = new();
+        private readonly object _lock = new();
 
-        public void AddRoute(RouteEntry route)
+        public void AddRoute(RouteEntry newRoute)
         {
-            _routes.Add(route);
+            lock (_lock)
+            {
+                // Находим ВСЕ маршруты в эту же сеть/префикс (не важно какой next-hop)
+                var sameNetwork = _routes
+                    .Where(r =>
+                        r.Destination.Equals(newRoute.Destination) &&
+                        r.PrefixLength == newRoute.PrefixLength)
+                    .ToList();
+
+                if (sameNetwork.Count > 0)
+                {
+                    // Находим лучший существующий (минимальный AD)
+                    var best = sameNetwork
+                        .OrderBy(r => r.AdministrativeDistance)
+                        .First();
+
+                    // 1) Если существующий лучше — новый игнорируем
+                    if (best.AdministrativeDistance < newRoute.AdministrativeDistance)
+                        return;
+
+                    // 2) Если AD одинаковые — заменяем существующие на новый
+                    //    (ECMP и многократные дубли нам не нужны)
+                    foreach (var r in sameNetwork)
+                        _routes.Remove(r);
+                }
+
+                // Добавляем новый лучший маршрут
+                _routes.Add(newRoute);
+            }
         }
 
         public void RemoveRoute(IPAddress destination, int prefixLength, string outInterfaceName)
         {
-            _routes.RemoveAll(r =>
-                r.Destination.Equals(destination) &&
-                r.PrefixLength == prefixLength &&
-                r.OutInterfaceName == outInterfaceName);
+            lock (_lock)
+            {
+                _routes.RemoveAll(r =>
+                    r.Destination.Equals(destination) &&
+                    r.PrefixLength == prefixLength &&
+                    r.OutInterfaceName.Equals(outInterfaceName, StringComparison.OrdinalIgnoreCase));
+            }
         }
 
-        public IReadOnlyCollection<RouteEntry> GetAll() => _routes.AsReadOnly();
+        public IReadOnlyCollection<RouteEntry> GetAll()
+        {
+            lock (_lock)
+                return _routes.ToList().AsReadOnly();
+        }
 
-        /// <summary>
-        /// Longest Prefix Match + administrative distance.
-        /// </summary>
         public RouteEntry? Lookup(IPAddress destination)
         {
-            RouteEntry? best = null;
-
-            foreach (var r in _routes)
+            lock (_lock)
             {
-                if (!IsMatch(destination, r))
-                    continue;
+                RouteEntry? best = null;
 
-                if (best == null)
+                foreach (var r in _routes)
                 {
-                    best = r;
-                    continue;
+                    if (!IsMatch(destination, r))
+                        continue;
+
+                    if (best == null)
+                    {
+                        best = r;
+                        continue;
+                    }
+
+                    // 1) LPM
+                    if (r.PrefixLength > best.PrefixLength)
+                    {
+                        best = r;
+                        continue;
+                    }
+
+                    if (r.PrefixLength == best.PrefixLength)
+                    {
+                        // 2) Administrative Distance
+                        if (r.AdministrativeDistance < best.AdministrativeDistance)
+                        {
+                            best = r;
+                            continue;
+                        }
+                    }
                 }
 
-                // 1) Максимальная длина префикса
-                if (r.PrefixLength > best.PrefixLength)
-                {
-                    best = r;
-                }
-                // 2) При одинаковой маске берём меньшую administrative distance
-                else if (r.PrefixLength == best.PrefixLength &&
-                         r.AdministrativeDistance < best.AdministrativeDistance)
-                {
-                    best = r;
-                }
+                return best;
             }
-
-            return best;
         }
 
         private static bool IsMatch(IPAddress ip, RouteEntry route)

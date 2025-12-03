@@ -6,6 +6,7 @@ using WANT.Service;               // для InterfaceScanner
 using WANT.Service.Interface;     // для InterfaceSnapshotUpdater и моделей
 using WANT.Service.Packets;
 using WANT.Service.Routing;
+using WANT.Service.Rip;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -37,11 +38,19 @@ builder.Services.AddSingleton<IRoutingTable, RoutingTable>();
 // Сервис маршрутизации (с “реверсным” next-hop)
 builder.Services.AddSingleton<IRoutingService, RoutingService>();
 
+
 // Сам воркер как singleton, чтобы можно было инжектить по типу PacketBridgeWorker
 builder.Services.AddSingleton<PacketBridgeWorker>();
 
 // И тот же инстанс запустить как фоновой сервис
 builder.Services.AddHostedService(sp => sp.GetRequiredService<PacketBridgeWorker>());
+
+// RIPv2-сервис
+builder.Services.AddSingleton<IRipService, RipService>();
+
+// И тот же инстанс запустить как фоновой сервис (как с PacketBridgeWorker)
+builder.Services.AddHostedService(sp => (RipService)sp.GetRequiredService<IRipService>());
+
 
 // ARP-сервис
 builder.Services.AddSingleton<
@@ -54,6 +63,12 @@ builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
 
 var app = builder.Build();
 
+// соединяем PacketBridgeWorker → RipService после создания контейнера
+{
+    var pb = app.Services.GetRequiredService<PacketBridgeWorker>();
+    var rip = app.Services.GetRequiredService<IRipService>() as RipService;
+    rip?.SetPacketBridge(pb);
+}
 
 // ── Swagger UI ──────────────────────────────────────────────────────────────────
 app.UseSwagger();

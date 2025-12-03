@@ -122,8 +122,11 @@ namespace Server.Controllers
                     OutInterfaceName = r.OutInterfaceName,
                     AdministrativeDistance = r.AdministrativeDistance,
                     Type = r.AdministrativeDistance == 0 && (r.NextHop == null || r.NextHop.Equals(IPAddress.None))
-                                ? "C"   // connected-like
-                                : "S"   // static
+                                ? "C"                  // connected-like
+                                : r.AdministrativeDistance == 120
+                                    ? "R"              // RIP
+                                    : "S"             // static / прочие
+
                 })
                 .ToList();
 
