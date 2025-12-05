@@ -7,6 +7,7 @@ using WANT.Service.Interface;     // для InterfaceSnapshotUpdater и моде
 using WANT.Service.Packets;
 using WANT.Service.Routing;
 using WANT.Service.Rip;
+using WANT.Service.Dhcp;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -50,6 +51,10 @@ builder.Services.AddSingleton<IRipService, RipService>();
 
 // И тот же инстанс запустить как фоновой сервис (как с PacketBridgeWorker)
 builder.Services.AddHostedService(sp => (RipService)sp.GetRequiredService<IRipService>());
+
+// DHCP-сервис
+builder.Services.AddSingleton<IDhcpService, DhcpService>();
+builder.Services.AddHostedService(sp => (DhcpService)sp.GetRequiredService<IDhcpService>());
 
 
 // ARP-сервис

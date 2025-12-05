@@ -15,6 +15,8 @@ using WANT.Service.Interface;
 using WANT.Service.Routing;             // ✅ добавили
 using System.Net.Sockets;              // ← для AddressFamily
 using WANT.Service.Rip;
+using WANT.Service.Dhcp;
+
 
 
 using PacketDotNet;                     // ArpPacket, ArpOperation, EthernetPacket, EthernetType, IPv4Packet
@@ -35,6 +37,8 @@ namespace WANT.Service.Packets
         private readonly IRoutingService _routingService;
         private readonly IRipService _ripService;   // ✅ добавили
 
+        private readonly IDhcpService _dhcpService;
+
         private readonly ConcurrentDictionary<string, ICaptureDevice> _opened = new(StringComparer.OrdinalIgnoreCase);
         public static readonly PhysicalAddress BroadcastMac =
             new PhysicalAddress(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF });
@@ -53,12 +57,14 @@ namespace WANT.Service.Packets
             InterfaceScanner store,
             ArpCache arpCache,
             IRoutingService routingService,
-            IRipService ripService)          // ✅ ДОБАВИЛСЯ параметр
+            IRipService ripService,
+            IDhcpService dhcpService)          // ✅ ДОБАВИЛСЯ параметр
         {
             _store = store;
             _arpCache = arpCache;
             _routingService = routingService;
             _ripService = ripService;
+            _dhcpService = dhcpService;
 
             // По умолчанию включаем Proxy ARP для всех известных Ethernet-интерфейсов
             foreach (var ni in _store.GetAll())
@@ -319,6 +325,24 @@ namespace WANT.Service.Packets
             if (ip.Protocol == PacketDotNet.ProtocolType.Udp)
             {
                 var udp = packet.Extract<UdpPacket>();
+
+                // DHCP: клиент 68, сервер 67
+                if (udp.SourcePort is 67 or 68 || udp.DestinationPort is 67 or 68)
+                {
+                    var respEth = _dhcpService.HandleIncomingDhcpPacket(ingressGuid, eth, ip, udp);
+                    // DHCP – чисто L2/L3-вещание, дальше как "routing" не идём
+                    if (respEth != null && dev is IInjectionDevice dhcpInj)
+                    {
+                        dhcpInj.SendPacket(respEth.Bytes);
+                        Console.WriteLine($"[DHCP] reply frame sent on {ingressGuid}, len={respEth.Bytes.Length}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[DHCP] no reply generated (respEth is null or device not injectable) on {ingressGuid}");
+                    }
+                    return;
+                }
+
                 if (udp != null && (udp.SourcePort == 520 || udp.DestinationPort == 520))
                 {
                     var ingressId = ingressGuid;
