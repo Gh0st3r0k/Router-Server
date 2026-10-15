@@ -9,9 +9,9 @@
 <p align="center">
   <a href="#getting-started">Getting started</a> ·
   <a href="#using-the-router">Using the router</a> ·
-  <a href="#development">Development</a> ·
   <a href="#api-reference">API reference</a> ·
   <a href="#network-behavior">Network behavior</a> ·
+  <a href="#development">Development</a> ·
   <a href="https://github.com/Gh0st3r0k/ROUTER-CLIENT">Desktop client</a>
 </p>
 
@@ -41,27 +41,6 @@ WANT Router Server is an educational IPv4 software router built with **ASP.NET C
 See [API reference](docs/api.md) for request shapes and [network behavior](docs/networking.md) for packet handling and protocol limitations.
 
 > Full packet routing targets **Windows with Npcap and physical Ethernet adapters**. Linux supports builds, automated tests, and management API development; Windows adapter discovery is intentionally skipped there.
-
-## Architecture
-
-```mermaid
-flowchart LR
-    UI[Electron desktop client] -->|HTTP JSON :5104| API[ASP.NET Core controllers]
-    API --> Interfaces[InterfaceScanner model]
-    API --> Routes[Routing table and recursive resolver]
-    API --> ARP[ARP cache and request service]
-    API --> RIP[RIPv2 service]
-    API --> DHCP[DHCP pools and leases]
-    Scanner[Windows WMI scanner] -->|5 second refresh| Interfaces
-    Interfaces --> Bridge[PacketBridgeWorker]
-    Bridge <--> ARP
-    Bridge <--> RIP
-    Bridge <--> DHCP
-    Bridge --> Routes
-    Bridge <-->|capture and injection| Npcap[Npcap / physical Ethernet]
-```
-
-Interface addresses belong to the application's model: setting an address through the API does **not** configure the host operating system. Routes, protocol settings, ARP entries, pools, reservations, and leases are held in memory and are lost when the process restarts.
 
 ## Getting started
 
@@ -106,6 +85,27 @@ Start the desktop client from its own checkout with `npm ci` followed by `npm st
 
 Use this software on an isolated lab network. The API has no authentication or authorization and permits any CORS origin; keep it bound to loopback or a trusted management network.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    UI[Electron desktop client] -->|HTTP JSON :5104| API[ASP.NET Core controllers]
+    API --> Interfaces[InterfaceScanner model]
+    API --> Routes[Routing table and recursive resolver]
+    API --> ARP[ARP cache and request service]
+    API --> RIP[RIPv2 service]
+    API --> DHCP[DHCP pools and leases]
+    Scanner[Windows WMI scanner] -->|5 second refresh| Interfaces
+    Interfaces --> Bridge[PacketBridgeWorker]
+    Bridge <--> ARP
+    Bridge <--> RIP
+    Bridge <--> DHCP
+    Bridge --> Routes
+    Bridge <-->|capture and injection| Npcap[Npcap / physical Ethernet]
+```
+
+Interface addresses belong to the application's model: setting an address through the API does **not** configure the host operating system. Routes, protocol settings, ARP entries, pools, reservations, and leases are held in memory and are lost when the process restarts.
+
 ## API reference
 
 Browse the running server's Swagger UI at `/swagger`, or read the [API reference](docs/api.md) for all management endpoints, request bodies, response formats, and examples.
@@ -115,25 +115,6 @@ Browse the running server's Swagger UI at `/swagger`, or read the [API reference
 Read [Packet flow and network behavior](docs/networking.md) for IPv4 forwarding, recursive route resolution, ARP, RIPv2, DHCP, and the hardware validation boundary.
 
 ## Development
-
-### Testing
-
-```sh
-dotnet test WANT.sln --configuration Release
-```
-
-The xUnit suite covers route replacement and preference, longest-prefix boundaries, recursive next-hop resolution and loop termination, connected routes from configured interfaces, serialized ARP request fields, and RIPv2 learning/withdrawal/invalid metrics. Tests require neither Npcap nor physical hardware. GitHub Actions runs this command on Linux.
-
-For an API smoke check against a running instance:
-
-```sh
-curl --fail http://localhost:5104/swagger/v1/swagger.json
-curl --fail http://localhost:5104/api/routes
-curl --fail http://localhost:5104/api/rip/timers
-curl --fail http://localhost:5104/api/dhcp/settings
-```
-
-The companion client also includes an end-to-end smoke command that exercises the API through an actual Electron preload bridge. Unit tests and HTTP responses do not establish that frames were forwarded on real Ethernet hardware.
 
 ### Project layout
 
@@ -155,6 +136,25 @@ docs/                        API and networking reference
 ```
 
 `bin/`, `obj/`, test outputs, IDE state, and local environment files are ignored. Historical build outputs are no longer tracked.
+
+### Testing
+
+```sh
+dotnet test WANT.sln --configuration Release
+```
+
+The xUnit suite covers route replacement and preference, longest-prefix boundaries, recursive next-hop resolution and loop termination, connected routes from configured interfaces, serialized ARP request fields, and RIPv2 learning/withdrawal/invalid metrics. Tests require neither Npcap nor physical hardware. GitHub Actions runs this command on Linux.
+
+For an API smoke check against a running instance:
+
+```sh
+curl --fail http://localhost:5104/swagger/v1/swagger.json
+curl --fail http://localhost:5104/api/routes
+curl --fail http://localhost:5104/api/rip/timers
+curl --fail http://localhost:5104/api/dhcp/settings
+```
+
+The companion client also includes an end-to-end smoke command that exercises the API through an actual Electron preload bridge. Unit tests and HTTP responses do not establish that frames were forwarded on real Ethernet hardware.
 
 ## Limitations and troubleshooting
 
