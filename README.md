@@ -1,20 +1,30 @@
-# WANT · Router Server
+<h1 align="center">Router · Server</h1>
 
-An educational IPv4 software router built with **ASP.NET Core 9**, **SharpPcap**, and **PacketDotNet**. The server exposes a REST management API and processes Ethernet frames in user space. Its companion [Electron client](https://github.com/Gh0st3r0k/ROUTER-CLIENT) manages interfaces, routes, ARP, RIP, and DHCP.
+<p align="center"><strong>An IPv4 routing lab with a REST management API.</strong></p>
 
-> Full packet routing targets **Windows with Npcap and physical Ethernet adapters**. Linux supports builds, automated tests, and management API development; Windows adapter discovery is intentionally skipped there.
+<p align="center">
+  Forward Ethernet traffic, manage routes, and explore ARP, RIPv2, and DHCP with the WANT software router.
+</p>
 
-## Contents
+<p align="center">
+  <a href="#install-and-run">Getting started</a> ·
+  <a href="docs/api.md">API reference</a> ·
+  <a href="docs/networking.md">Network behavior</a> ·
+  <a href="https://github.com/Gh0st3r0k/ROUTER-CLIENT">Desktop client</a>
+</p>
 
-- [Implemented features](#implemented-features)
-- [Architecture](#architecture)
-- [Requirements](#requirements)
-- [Install and run](#install-and-run)
-- [Testing](#testing)
-- [Project layout](#project-layout)
-- [Limitations and troubleshooting](#limitations-and-troubleshooting)
+<p align="center">
+  <img src="https://img.shields.io/badge/.NET-9-512BD4?logo=dotnet&amp;logoColor=white" alt=".NET 9">
+  <img src="https://img.shields.io/badge/C%23-ASP.NET_Core-512BD4" alt="C# · ASP.NET Core">
+  <img src="https://img.shields.io/badge/SharpPcap-6.3.1-0078D4" alt="SharpPcap 6.3.1">
+  <img src="https://img.shields.io/badge/PacketDotNet-1.4.8-0078D4" alt="PacketDotNet 1.4.8">
+</p>
 
-## Implemented features
+---
+
+## Overview
+
+WANT Router Server is an educational IPv4 software router built with **ASP.NET Core 9**, **SharpPcap**, and **PacketDotNet**. It processes Ethernet frames in user space and exposes a REST API for the companion [Router Desktop](https://github.com/Gh0st3r0k/ROUTER-CLIENT) client.
 
 | Component | Behavior |
 | --- | --- |
@@ -27,6 +37,8 @@ An educational IPv4 software router built with **ASP.NET Core 9**, **SharpPcap**
 | Management | REST controllers, permissive CORS for the desktop client, and Swagger UI/OpenAPI. |
 
 See [API reference](docs/api.md) for request shapes and [network behavior](docs/networking.md) for packet handling and protocol limitations.
+
+> Full packet routing targets **Windows with Npcap and physical Ethernet adapters**. Linux supports builds, automated tests, and management API development; Windows adapter discovery is intentionally skipped there.
 
 ## Architecture
 
