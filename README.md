@@ -7,9 +7,11 @@
 </p>
 
 <p align="center">
-  <a href="#install-and-run">Getting started</a> ·
-  <a href="docs/api.md">API reference</a> ·
-  <a href="docs/networking.md">Network behavior</a> ·
+  <a href="#getting-started">Getting started</a> ·
+  <a href="#using-the-router">Using the router</a> ·
+  <a href="#development">Development</a> ·
+  <a href="#api-reference">API reference</a> ·
+  <a href="#network-behavior">Network behavior</a> ·
   <a href="https://github.com/Gh0st3r0k/ROUTER-CLIENT">Desktop client</a>
 </p>
 
@@ -61,7 +63,9 @@ flowchart LR
 
 Interface addresses belong to the application's model: setting an address through the API does **not** configure the host operating system. Routes, protocol settings, ARP entries, pools, reservations, and leases are held in memory and are lost when the process restarts.
 
-## Requirements
+## Getting started
+
+### Requirements
 
 - .NET **9 SDK** to build and test; the ASP.NET Core 9 runtime to run built outputs.
 - Windows with [Npcap](https://npcap.com/) and packet capture/injection access for the full router workflow. Install its WinPcap compatibility support when required by your setup.
@@ -72,7 +76,7 @@ Interface addresses belong to the application's model: setting an address throug
 
 The project references Microsoft.AspNetCore.OpenApi 9.0.9, Swashbuckle.AspNetCore 9.0.4, PacketDotNet 1.4.8, SharpPcap 6.3.1, and System.Management 9.0.9.
 
-## Install and run
+### Installation and startup
 
 ```sh
 git clone https://github.com/Gh0st3r0k/Router-Server.git
@@ -92,7 +96,7 @@ dotnet Server/bin/Release/net9.0/Server.dll --urls http://localhost:5104
 
 Start the desktop client from its own checkout with `npm ci` followed by `npm start`. See its README for desktop/headless prerequisites.
 
-### First lab session
+## Using the router
 
 1. Start the server on the Windows lab host and confirm adapters appear in `GET /api/interface`.
 2. In the client, open **Ports** and configure each router-model IPv4 address and contiguous mask.
@@ -102,7 +106,17 @@ Start the desktop client from its own checkout with `npm ci` followed by `npm st
 
 Use this software on an isolated lab network. The API has no authentication or authorization and permits any CORS origin; keep it bound to loopback or a trusted management network.
 
-## Testing
+## API reference
+
+Browse the running server's Swagger UI at `/swagger`, or read the [API reference](docs/api.md) for all management endpoints, request bodies, response formats, and examples.
+
+## Network behavior
+
+Read [Packet flow and network behavior](docs/networking.md) for IPv4 forwarding, recursive route resolution, ARP, RIPv2, DHCP, and the hardware validation boundary.
+
+## Development
+
+### Testing
 
 ```sh
 dotnet test WANT.sln --configuration Release
@@ -121,7 +135,7 @@ curl --fail http://localhost:5104/api/dhcp/settings
 
 The companion client also includes an end-to-end smoke command that exercises the API through an actual Electron preload bridge. Unit tests and HTTP responses do not establish that frames were forwarded on real Ethernet hardware.
 
-## Project layout
+### Project layout
 
 ```text
 WANT.sln
