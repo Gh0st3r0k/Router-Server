@@ -1,10 +1,9 @@
 #nullable enable
-using System;
-using System.Collections.Generic;
-using System.Net;
 using System.Net.NetworkInformation;
+using System.Net;
 using Microsoft.AspNetCore.Mvc;
 using WANT.Service.Dhcp;
+
 
 namespace WANT.Controller
 {
@@ -19,8 +18,6 @@ namespace WANT.Controller
             _dhcp = dhcp;
         }
 
-        // ───────────── Глобальные настройки ─────────────
-
         /// <summary>
         /// Получить глобальные настройки DHCP (lease time, cleanup interval).
         /// </summary>
@@ -31,7 +28,7 @@ namespace WANT.Controller
 
             var dto = new DhcpSettingsDto
             {
-                DynamicLeaseSeconds    = (int)s.DefaultDynamicLeaseTime.TotalSeconds,
+                DynamicLeaseSeconds = (int)s.DefaultDynamicLeaseTime.TotalSeconds,
                 CleanupIntervalSeconds = (int)s.CleanupInterval.TotalSeconds
             };
 
@@ -53,14 +50,12 @@ namespace WANT.Controller
             var settings = new DhcpGlobalSettings
             {
                 DefaultDynamicLeaseTime = TimeSpan.FromSeconds(dto.DynamicLeaseSeconds),
-                CleanupInterval         = TimeSpan.FromSeconds(dto.CleanupIntervalSeconds)
+                CleanupInterval = TimeSpan.FromSeconds(dto.CleanupIntervalSeconds)
             };
 
             _dhcp.UpdateGlobalSettings(settings);
             return NoContent();
         }
-
-        // ───────────── Пулы ─────────────
 
         [HttpGet("pools")]
         public ActionResult<IReadOnlyCollection<DhcpPool>> GetPools()
@@ -104,14 +99,11 @@ namespace WANT.Controller
             return NoContent();
         }
 
-        // ───────────── Manual reservations ─────────────
-
         public sealed class DhcpSettingsDto
         {
             public int DynamicLeaseSeconds { get; set; }
             public int CleanupIntervalSeconds { get; set; }
         }
-
 
         public sealed class ManualReservationDto
         {
@@ -153,8 +145,6 @@ namespace WANT.Controller
 
             return NoContent();
         }
-
-        // ───────────── Leases ─────────────
 
         [HttpGet("leases")]
         public ActionResult<IReadOnlyCollection<DhcpLease>> GetLeases()

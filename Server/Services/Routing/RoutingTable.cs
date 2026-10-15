@@ -19,31 +19,18 @@ namespace WANT.Service.Routing
         {
             lock (_lock)
             {
-                // Находим ВСЕ маршруты в эту же сеть/префикс (не важно какой next-hop)
-                var sameNetwork = _routes
-                    .Where(r =>
-                        r.Destination.Equals(newRoute.Destination) &&
-                        r.PrefixLength == newRoute.PrefixLength)
-                    .ToList();
+                // Keep one route per exact network/prefix. Lower administrative
+                // distance wins; an equal-distance update replaces the old route.
+                bool hasPreferredRoute = _routes.Any(route =>
+                    route.Destination.Equals(newRoute.Destination) &&
+                    route.PrefixLength == newRoute.PrefixLength &&
+                    route.AdministrativeDistance < newRoute.AdministrativeDistance);
+                if (hasPreferredRoute)
+                    return;
 
-                if (sameNetwork.Count > 0)
-                {
-                    // Находим лучший существующий (минимальный AD)
-                    var best = sameNetwork
-                        .OrderBy(r => r.AdministrativeDistance)
-                        .First();
-
-                    // 1) Если существующий лучше — новый игнорируем
-                    if (best.AdministrativeDistance < newRoute.AdministrativeDistance)
-                        return;
-
-                    // 2) Если AD одинаковые — заменяем существующие на новый
-                    //    (ECMP и многократные дубли нам не нужны)
-                    foreach (var r in sameNetwork)
-                        _routes.Remove(r);
-                }
-
-                // Добавляем новый лучший маршрут
+                _routes.RemoveAll(route =>
+                    route.Destination.Equals(newRoute.Destination) &&
+                    route.PrefixLength == newRoute.PrefixLength);
                 _routes.Add(newRoute);
             }
         }
@@ -76,27 +63,12 @@ namespace WANT.Service.Routing
                     if (!IsMatch(destination, r))
                         continue;
 
-                    if (best == null)
+                    // Longest prefix wins before administrative distance.
+                    if (best is null || r.PrefixLength > best.PrefixLength ||
+                        (r.PrefixLength == best.PrefixLength &&
+                         r.AdministrativeDistance < best.AdministrativeDistance))
                     {
                         best = r;
-                        continue;
-                    }
-
-                    // 1) LPM
-                    if (r.PrefixLength > best.PrefixLength)
-                    {
-                        best = r;
-                        continue;
-                    }
-
-                    if (r.PrefixLength == best.PrefixLength)
-                    {
-                        // 2) Administrative Distance
-                        if (r.AdministrativeDistance < best.AdministrativeDistance)
-                        {
-                            best = r;
-                            continue;
-                        }
                     }
                 }
 

@@ -1,10 +1,8 @@
 #nullable enable
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.NetworkInformation;
 using System.Management;
+using System.Net.NetworkInformation;
 using System.Runtime.Versioning;
+
 
 namespace WANT.Service.Interface
 {
@@ -21,7 +19,6 @@ namespace WANT.Service.Interface
                 if (nic.NetworkInterfaceType != NetworkInterfaceType.Ethernet)
                     continue;
 
-                // ⬅️ вот фильтр: пропускать всё что не UP, когда onlyUp = true
                 if (onlyUp && nic.OperationalStatus != OperationalStatus.Up)
                     continue;
 
@@ -29,7 +26,7 @@ namespace WANT.Service.Interface
                 if (!meta.TryGetValue(guid, out var m) || !m.PhysicalAdapter || !m.ConnectorPresent)
                     continue;
 
-                var osName   = nic.Name ?? string.Empty;
+                var osName = nic.Name ?? string.Empty;
                 var friendly = m.NetConnectionId ?? osName;
 
                 list.Add(new NetInterface(
@@ -53,28 +50,11 @@ namespace WANT.Service.Interface
             return list;
         }
 
-        private static bool IsWireless(NetworkInterface nic)
-        {
-            var d = (nic.Description ?? "") + " " + (nic.Name ?? "");
-            return d.Contains("wi-fi", StringComparison.OrdinalIgnoreCase)
-                || d.Contains("wifi", StringComparison.OrdinalIgnoreCase)
-                || d.Contains("wireless", StringComparison.OrdinalIgnoreCase)
-                || d.Contains("802.11", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsBluetooth(NetworkInterface nic, string? pnp)
-        {
-            var d = (nic.Description ?? "") + " " + (nic.Name ?? "");
-            if (!string.IsNullOrEmpty(pnp) && pnp.IndexOf("BTH", StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
-            return d.Contains("bluetooth", StringComparison.OrdinalIgnoreCase);
-        }
-
         private static Dictionary<string, (bool PhysicalAdapter, bool ConnectorPresent, string? PnpDeviceId, string? NetConnectionId)> BuildAdapterMeta()
         {
             var dict = new Dictionary<string, (bool, bool, string?, string?)>(StringComparer.OrdinalIgnoreCase);
 
-            // MSFT_NetAdapter (как было) — оставляем
+            // Combine modern adapter metadata with the Win32 friendly connection name.
             try
             {
                 var scope = new ManagementScope(@"\\.\root\StandardCimv2");
@@ -85,9 +65,9 @@ namespace WANT.Service.Interface
                 {
                     var guid = (mo["InterfaceGuid"] as string)?.Trim('{', '}');
                     if (string.IsNullOrWhiteSpace(guid)) continue;
-                    bool hw   = (bool?)mo["HardwareInterface"] == true;
+                    bool hw = (bool?)mo["HardwareInterface"] == true;
                     bool conn = (bool?)mo["ConnectorPresent"] == true;
-                    var pnp   = mo["PNPDeviceID"] as string;
+                    var pnp = mo["PNPDeviceID"] as string;
                     dict[guid.ToUpperInvariant()] = (hw, conn, pnp, /*NetConnectionId*/ null);
                 }
             }

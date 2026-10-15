@@ -1,4 +1,3 @@
-// WANT.Service/Rip/RipInterfaceState.cs
 namespace WANT.Service.Rip
 {
     /// <summary>

@@ -1,6 +1,6 @@
 #nullable enable
-using System;
 using System.Net;
+
 
 namespace WANT.Service.Interface
 {
@@ -29,7 +29,7 @@ namespace WANT.Service.Interface
         TrackState TrackState   // Active/Unconfigured/Removed
     )
     {
-        // Удобные фабрики/помощники при необходимости можно добавить позже.
+
         public bool IsUp => Status == NicStatus.Up;
     }
 }

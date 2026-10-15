@@ -1,20 +1,17 @@
 #nullable enable
-using System;
-using System.Collections.Generic;
-using System.Linq;
 
 namespace WANT.Service.Interface
 {
     public static class InterfaceManager
     {
-        // ⬇️ добавили флаг hardDeleteMissing (по умолчанию true)
+        // Preserve model configuration while refreshing OS metadata.
         public static void Sync(IEnumerable<NetInterface> latest, WANT.Service.InterfaceScanner store, bool hardDeleteMissing = true)
         {
             var current = store.GetAll().ToDictionary(x => x.Guid, StringComparer.OrdinalIgnoreCase);
             var latestByGuid = latest.ToDictionary(x => x.Guid, StringComparer.OrdinalIgnoreCase);
             var result = new Dictionary<string, NetInterface>(StringComparer.OrdinalIgnoreCase);
 
-            // 1) обновляем существующие (UserName и адресацию НЕ трогаем)
+            // Preserve user names and configured addresses on existing interfaces.
             foreach (var (guid, cur) in current)
             {
                 if (latestByGuid.TryGetValue(guid, out var l))
@@ -22,19 +19,19 @@ namespace WANT.Service.Interface
                     var updated = cur with
                     {
                         Description = l.Description,
-                        OSName      = l.OSName,
-                        FriendlyName= l.FriendlyName,
-                        Type        = l.Type,
-                        Mac         = l.Mac,
-                        Status      = l.Status,
-                        // Ip/Mask/PrefixLen — не трогаем
-                        TrackState  = cur.Ip is null ? TrackState.Unconfigured : TrackState.Active
+                        OSName = l.OSName,
+                        FriendlyName = l.FriendlyName,
+                        Type = l.Type,
+                        Mac = l.Mac,
+                        Status = l.Status,
+                        // Router-model addressing is independent of OS discovery.
+                        TrackState = cur.Ip is null ? TrackState.Unconfigured : TrackState.Active
                     };
                     result[guid] = updated;
                 }
             }
 
-            // 2) новые GUID → Unconfigured без адресации
+            // New interfaces start without router-model addresses.
             foreach (var (guid, l) in latestByGuid)
             {
                 if (!current.ContainsKey(guid))
@@ -57,29 +54,19 @@ namespace WANT.Service.Interface
                 }
             }
 
-            // 3) исчезнувшие GUID
+            // Optionally retain missing interfaces as removed snapshots.
             foreach (var (guid, cur) in current)
             {
-                if (!latestByGuid.ContainsKey(guid))
+                if (!hardDeleteMissing && !latestByGuid.ContainsKey(guid))
                 {
-                    if (hardDeleteMissing)
+                    result[guid] = cur with
                     {
-                        // 🔥 жёсткое удаление: НЕ добавляем в result вообще
-                        // (ТУДУ: тут можно вызвать очистку ARP/route для сети этого интерфейса)
-                    }
-                    else
-                    {
-                        // мягкая пометка Removed (если когда-нибудь понадобится)
-                        var removed = cur with
-                        {
-                            Ip = null,
-                            Mask = null,
-                            PrefixLen = null,
-                            TrackState = TrackState.Removed,
-                            Status = NicStatus.Unknown
-                        };
-                        result[guid] = removed;
-                    }
+                        Ip = null,
+                        Mask = null,
+                        PrefixLen = null,
+                        TrackState = TrackState.Removed,
+                        Status = NicStatus.Unknown
+                    };
                 }
             }
 
@@ -104,7 +91,7 @@ namespace WANT.Service.Interface
 
             var prefix = TryMaskToPrefix(maskAddr);
 
-            // ТУДУ: пересчитать connected-route, пересобрать FIB, очистить ARP старой сети
+            // Routes and ARP state are managed separately; this updates only the model.
             all[guid] = ni with { Ip = ipAddr, Mask = maskAddr, PrefixLen = prefix, TrackState = TrackState.Active };
             store.ReplaceAll(all.Values);
         }
@@ -120,7 +107,13 @@ namespace WANT.Service.Interface
                     bits += x switch
                     {
                         255 => 8,
-                        254 => 7, 252 => 6, 248 => 5, 240 => 4, 224 => 3, 192 => 2, 128 => 1,
+                        254 => 7,
+                        252 => 6,
+                        248 => 5,
+                        240 => 4,
+                        224 => 3,
+                        192 => 2,
+                        128 => 1,
                         0 => 0,
                         _ => throw new InvalidOperationException("Bad mask")
                     };

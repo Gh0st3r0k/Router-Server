@@ -1,5 +1,3 @@
-// WANT.Service/Rip/RipLearnedRoute.cs
-using System;
 using System.Net;
 using WANT.Service.Routing;
 

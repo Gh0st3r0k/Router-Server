@@ -1,6 +1,5 @@
-// Server/Controller/ArpController.cs
-using Microsoft.AspNetCore.Mvc;
 using System.Net;
+using Microsoft.AspNetCore.Mvc;
 using WANT.Service.Packets;
 
 namespace Server.Controller

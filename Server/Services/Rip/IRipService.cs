@@ -1,5 +1,3 @@
-// WANT.Service/Rip/IRipService.cs
-using System.Collections.Generic;
 using PacketDotNet;
 
 namespace WANT.Service.Rip

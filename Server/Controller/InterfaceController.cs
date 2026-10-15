@@ -1,9 +1,10 @@
 #nullable enable
-using Microsoft.AspNetCore.Mvc;
 using System.Net;
+using Microsoft.AspNetCore.Mvc;
 using WANT.Controller.Dto;
-using WANT.Service;
 using WANT.Service.Interface;
+using WANT.Service;
+
 
 namespace WANT.Controller
 {
@@ -49,7 +50,6 @@ namespace WANT.Controller
             if (!IsValidNetmask(req.Mask, allowSlash0: true, allowSlash32: true))
                 return BadRequest(new { error = "Mask must be a valid contiguous IPv4 netmask." });
 
-
             var existing = _store.GetByGuid(guid);
             if (existing is null) return NotFound(new { error = "Interface not found." });
 
@@ -75,7 +75,6 @@ namespace WANT.Controller
             return Ok(updated);
         }
 
-        // ── helpers ──────────────────────────────────────────────────────────────
         private static bool IsValidIpv4(string ip)
         {
             return IPAddress.TryParse(ip, out var addr)
@@ -92,7 +91,7 @@ namespace WANT.Controller
             uint m = ((uint)b[0] << 24) | ((uint)b[1] << 16) | ((uint)b[2] << 8) | b[3];
 
             // Разрешать /0 и /32?
-            if (!allowSlash0  && m == 0x00000000) return false; // 0.0.0.0
+            if (!allowSlash0 && m == 0x00000000) return false; // 0.0.0.0
             if (!allowSlash32 && m == 0xFFFFFFFF) return false; // 255.255.255.255
 
             // Условие «все единицы слева, все нули справа»: (m | (m - 1)) == 0xFFFFFFFF

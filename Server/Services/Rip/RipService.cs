@@ -1,20 +1,14 @@
-// WANT.Service/Rip/RipService.cs
 #nullable enable
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
+using System.Net;
 using PacketDotNet;
 using SharpPcap;
 using WANT.Service.Interface;
 using WANT.Service.Packets;
 using WANT.Service.Routing;
-using System.Net.NetworkInformation;
+
 
 namespace WANT.Service.Rip
 {
@@ -35,7 +29,6 @@ namespace WANT.Service.Rip
         {
             _packetBridge = worker;
         }
-
 
         private readonly object _lock = new();
 
@@ -74,8 +67,6 @@ namespace WANT.Service.Rip
                 };
             }
         }
-
-        // ==================== IRipService ====================
 
         public RipTimers GetTimers()
         {
@@ -136,7 +127,6 @@ namespace WANT.Service.Rip
             // ❗ Если источник – наш же IP на этом интерфейсе, значит это наш собственный RIP update → игнор
             if (TryGetInterfaceIp(id, out var localIp) && localIp.Equals(ip.SourceAddress))
             {
-                // Console.WriteLine($"[RIP] Ignore self-originated RIP on {id} from {localIp}");
                 return;
             }
 
@@ -162,8 +152,6 @@ namespace WANT.Service.Rip
             ParseRipResponse(id, ip.SourceAddress, payload);
         }
 
-        // ==================== BackgroundService ====================
-
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             while (!stoppingToken.IsCancellationRequested)
@@ -180,8 +168,6 @@ namespace WANT.Service.Rip
                 }
             }
         }
-
-        // ==================== Таймеры и отправка ====================
 
         private void TickTimers()
         {
@@ -249,7 +235,6 @@ namespace WANT.Service.Rip
                 }
             }
 
-            // ====== UPDATE таймеры как у тебя было ======
             var now2 = DateTime.UtcNow;
 
             foreach (var st in _ifStates.Values)
@@ -269,22 +254,17 @@ namespace WANT.Service.Rip
             }
         }
 
-
-        // ==================== Обработка входящих RIP ====================
-
         private void ParseRipResponse(string ingressId, IPAddress neighborIp, byte[] payload)
         {
             // Header: 4 bytes
-            const int HEADER_LEN = 4;
-            int offset = HEADER_LEN;
+            const int headerLength = 4;
+            int offset = headerLength;
 
             while (offset + 20 <= payload.Length)
             {
                 ushort afi = ReadUInt16(payload, offset);
-                ushort routeTag = ReadUInt16(payload, offset + 2);
                 var ip = ReadIp(payload, offset + 4);
                 var mask = ReadIp(payload, offset + 8);
-                var nextHop = ReadIp(payload, offset + 12);
                 uint metricRaw = ReadUInt32(payload, offset + 16);
 
                 offset += 20;
@@ -308,10 +288,7 @@ namespace WANT.Service.Rip
 
                 var key = (network.ToString(), prefixLen);
 
-                var ingressNorm = NormalizeGuid(ingressId);
-                // === Split Horizon ===
-                // Если мы уже знаем, что маршрут был выучен с этого же интерфейса,
-                // просто обновляем таймеры, но не меняем направление.
+                // Track the most recently accepted neighbor; outbound updates apply split horizon.
                 var entry = _ripRoutes.GetOrAdd(key, _ => new RipLearnedRoute
                 {
                     Destination = network,
@@ -372,7 +349,6 @@ namespace WANT.Service.Rip
             return false;
         }
 
-
         private void InstallOrUpdateRoute(RipLearnedRoute ripRoute)
         {
             // AD = 120 для RIP
@@ -391,8 +367,6 @@ namespace WANT.Service.Rip
             _routingTable.AddRoute(route);
             ripRoute.InstalledRoute = route;
         }
-
-        // ==================== Отправка RIP Updates ====================
 
         private void SendRipUpdateOnInterface(string interfaceIdRaw)
         {
@@ -514,9 +488,6 @@ namespace WANT.Service.Rip
             inj.SendPacket(bytes);
         }
 
-
-        // ==================== Помощники ====================
-
         private static ushort ComputeIpHeaderChecksum(byte[] buffer, int offset, int headerLength)
         {
             uint sum = 0;
@@ -582,15 +553,6 @@ namespace WANT.Service.Rip
             return result;
         }
 
-
-
-
-
-
-
-        
-
-
         private List<(IPAddress net, IPAddress mask, int metric, string learnedOnIf)>
             BuildRipEntriesForInterface(string interfaceIdRaw)
         {
@@ -608,7 +570,7 @@ namespace WANT.Service.Rip
                 if (string.IsNullOrWhiteSpace(niId))
                     continue;
 
-                // ❌ Не шлём сеть самого интерфейса X назад на X
+                // Do not advertise an interface network back on that interface.
                 if (string.Equals(niId, interfaceId, StringComparison.OrdinalIgnoreCase))
                     continue;
 
@@ -632,7 +594,7 @@ namespace WANT.Service.Rip
             {
                 var r = kv.Value;
 
-                // ❌ split horizon: не шлём обратно на интерфейс, через который выучили
+                // Split horizon: do not advertise learned routes back toward their source.
                 if (string.Equals(
                         NormalizeGuid(r.LearnedOnInterfaceId),
                         interfaceId,
@@ -664,8 +626,6 @@ namespace WANT.Service.Rip
 
             return list;
         }
-
-
 
         private static byte[] BuildRipResponsePayload(List<(IPAddress net, IPAddress mask, int metric, string learnedOnIf)> entries)
         {
@@ -709,8 +669,6 @@ namespace WANT.Service.Rip
 
             return bytes;
         }
-
-        // ==================== Помощники ====================
 
         private static string NormalizeGuid(string guid)
             => guid?.Trim('{', '}').ToUpperInvariant() ?? string.Empty;
@@ -800,7 +758,9 @@ namespace WANT.Service.Rip
                         StringComparison.OrdinalIgnoreCase));
 
             if (ni == null) return false;
-            return IPAddress.TryParse(ni.Ip?.ToString(), out ip);
+            if (ni.Ip is null) return false;
+            ip = ni.Ip;
+            return true;
         }
 
         private bool TryGetInterfaceMac(string guidUpper, out PhysicalAddress mac)

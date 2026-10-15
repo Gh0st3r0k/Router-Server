@@ -1,6 +1,3 @@
-// WANT.Service/Rip/RipTimers.cs
-using System;
-
 namespace WANT.Service.Rip
 {
     /// <summary>

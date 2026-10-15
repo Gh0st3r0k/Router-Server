@@ -1,9 +1,7 @@
-// Server/Controllers/RipController.cs
 #nullable enable
-using System;
-using System.Collections.Generic;
 using Microsoft.AspNetCore.Mvc;
 using WANT.Service.Rip;
+
 
 namespace Server.Controllers
 {

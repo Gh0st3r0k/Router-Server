@@ -1,11 +1,8 @@
-// WANT.Service.Packets/ArpService.cs
-using System;
-using System.Net;
 using System.Net.NetworkInformation;
-using SharpPcap;
-using WANT.Service;           // InterfaceScanner
-using WANT.Service.Packets;   // PacketBridgeWorker, ArpTools
+using System.Net;
 using Server.Services.Packets;
+using SharpPcap;
+using WANT.Service;
 
 namespace WANT.Service.Packets
 {
@@ -41,7 +38,7 @@ namespace WANT.Service.Packets
             var injector = dev as IInjectionDevice
                 ?? throw new NotSupportedException($"Device '{nicId}' does not support packet injection.");
 
-            // 2) данные интерфейса из твоего store
+            // Use the router model for the configured source address.
             var ni = _store.GetByGuid(nicId)
                 ?? throw new InvalidOperationException($"NIC '{nicId}' not found in store.");
 

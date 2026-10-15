@@ -1,8 +1,7 @@
 #nullable enable
-using System;
-using System.Collections.Generic;
-using System.Net;
 using System.Net.NetworkInformation;
+using System.Net;
+
 
 namespace WANT.Service.Dhcp
 {
@@ -49,7 +48,7 @@ namespace WANT.Service.Dhcp
         public string Name { get; set; } = "default";
 
         /// <summary>
-        /// GUID интерфейса (как в твоём InterfaceScanner: Guid без скобок, Upper).
+        /// Interface GUID, uppercase without braces, as returned by discovery.
         /// </summary>
         public string InterfaceId { get; set; } = string.Empty;
 
@@ -171,17 +170,5 @@ namespace WANT.Service.Dhcp
             }
         }
 
-        public sealed class DhcpSettingsDto
-        {
-            /// <summary>
-            /// Lease для dynamic-аренд в секундах.
-            /// </summary>
-            public int DynamicLeaseSeconds { get; set; }
-
-            /// <summary>
-            /// Как часто чистим истёкшие lease, в секундах.
-            /// </summary>
-            public int CleanupIntervalSeconds { get; set; }
-        }
     }
 }

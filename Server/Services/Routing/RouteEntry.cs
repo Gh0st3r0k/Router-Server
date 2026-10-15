@@ -38,6 +38,6 @@ namespace WANT.Service.Routing
         /// 100+ - dynamic и т.д.
         /// </summary>
         public int AdministrativeDistance { get; set; }
-    
+
     }
 }

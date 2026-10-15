@@ -1,12 +1,8 @@
-// WANT.Service.Packets/ArpCache.cs
 #nullable enable
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
 using System.Net.NetworkInformation;
-using System.Threading;
+using System.Net;
+
 
 namespace WANT.Service.Packets
 {
@@ -78,8 +74,6 @@ namespace WANT.Service.Packets
         }
 
         public void Dispose() => _janitor.Dispose();
-
-
 
         public bool TryGet(IPAddress ip, string nicId, out PhysicalAddress mac)
         {

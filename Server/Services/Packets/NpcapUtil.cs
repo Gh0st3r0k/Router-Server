@@ -1,6 +1,6 @@
 #nullable enable
-using System;
 using SharpPcap;
+
 
 namespace WANT.Service.Packets
 {
@@ -11,7 +11,7 @@ namespace WANT.Service.Packets
         {
             foreach (var dev in CaptureDeviceList.Instance)
             {
-                var name  = (dev.Name ?? string.Empty).ToUpperInvariant();
+                var name = (dev.Name ?? string.Empty).ToUpperInvariant();
                 var descr = (dev.Description ?? string.Empty).ToUpperInvariant();
                 if (name.Contains(guidUpper) || descr.Contains(guidUpper))
                     return dev;

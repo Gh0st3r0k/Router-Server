@@ -1,6 +1,6 @@
 #nullable enable
-using System;
 using System.Runtime.Versioning;
+
 
 namespace WANT.Service.Interface
 {
@@ -18,7 +18,7 @@ namespace WANT.Service.Interface
         private static void UpdateOnceWindowsOnly(WANT.Service.InterfaceScanner store)
         {
             var latest = PhysicalInterfaceDetector.GetAllPhysicalEthernet(onlyUp: true);
-            InterfaceManager.Sync(latest, store, hardDeleteMissing: true); // ⬅️ удаляем полностью
+            InterfaceManager.Sync(latest, store, hardDeleteMissing: true);
         }
     }
 }

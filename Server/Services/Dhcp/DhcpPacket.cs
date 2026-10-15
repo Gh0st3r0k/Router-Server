@@ -1,8 +1,6 @@
 #nullable enable
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
+
 
 namespace PacketDotNet.Dhcp
 {
@@ -46,13 +44,12 @@ namespace PacketDotNet.Dhcp
             Parse(raw);
         }
 
-        // ====================== PARSE =======================
         private void Parse(byte[] raw)
         {
 
             if (raw == null)
                 throw new ArgumentNullException(nameof(raw));
-        
+
             if (raw.Length < 240)
                 throw new Exception("Invalid DHCP packet");
 
@@ -85,8 +82,6 @@ namespace PacketDotNet.Dhcp
                 Options[opt] = data;
             }
         }
-
-        // ====================== BUILD ========================
 
         public byte[] Bytes
         {
@@ -133,8 +128,6 @@ namespace PacketDotNet.Dhcp
                 return buf.ToArray();
             }
         }
-
-        // ====================== HELPERS ======================
 
         public DhcpMessageType GetMsgType()
         {

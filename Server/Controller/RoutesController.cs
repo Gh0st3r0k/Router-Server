@@ -1,12 +1,10 @@
 #nullable enable
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
 using Microsoft.AspNetCore.Mvc;
+using WANT.Service.Interface;
 using WANT.Service.Routing;
-using WANT.Service.Interface; // ⚠️ чтобы видеть InterfaceScanner
 using WANT.Service;
+
 
 namespace Server.Controllers
 {
@@ -101,8 +99,6 @@ namespace Server.Controllers
             public int PrefixLength { get; set; }
             public string OutInterfaceName { get; set; } = default!;
         }
-
-        // ======================= ENDPOINTY =======================
 
         /// <summary>
         /// GET /api/routes
@@ -210,8 +206,8 @@ namespace Server.Controllers
                     continue;
 
                 // Универсальный парсер
-                var ip   = ParseIpFlexible(ni.Ip);
-                var mask = ParseIpFlexible(ni.Mask);
+                var ip = ni.Ip;
+                var mask = ni.Mask;
 
                 if (ip == null || mask == null)
                     continue;
@@ -234,34 +230,8 @@ namespace Server.Controllers
                 _routingTable.AddRoute(route);
             }
 
-
-
             return Ok();
         }
-
-        private static IPAddress? ParseIpFlexible(object? value)
-        {
-            if (value is null)
-                return null;
-
-            // Если это уже IPAddress — просто возвращаем
-            if (value is IPAddress ip)
-                return ip;
-
-            // Если это string — парсим
-            if (value is string s)
-            {
-                return IPAddress.TryParse(s, out var parsed) ? parsed : null;
-            }
-
-            // Если это что-то ещё (например JObject или dynamic) → попробуем ToString()
-            var str = value.ToString();
-            if (!string.IsNullOrWhiteSpace(str))
-                return IPAddress.TryParse(str, out var parsed2) ? parsed2 : null;
-
-            return null;
-        }
-
 
         /// <summary>
         /// DELETE /api/routes
@@ -278,8 +248,6 @@ namespace Server.Controllers
             _routingTable.RemoveRoute(netIp, dto.PrefixLength, outIf);
             return Ok();
         }
-
-        // ======================= HELPERY =======================
 
         private static IPAddress? CalculateNetwork(IPAddress ip, IPAddress mask, out int prefixLength)
         {

@@ -1,30 +1,15 @@
 #nullable enable
-using Microsoft.Extensions.Hosting;
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
 using System.Net.NetworkInformation;
-using System.Threading;
-using System.Threading.Tasks;
-using PacketDotNet;
-using WANT.Service.Packets;       // для PacketBridgeWorker.TryGetNicMacStatic
-using WANT.Service.Dhcp;          // твои модели
+using System.Net;
 using PacketDotNet.Dhcp;
+using PacketDotNet;
+using WANT.Service.Packets;
 
 
 namespace WANT.Service.Dhcp
 {
-    /// <summary>
-    /// Реализация DHCP-сервиса + фоновой воркер для чистки истёкших lease.
-    /// Пока здесь нет самой DORA-логики (формирование OFFER/ACK),
-    /// но есть:
-    /// - хранение глобальных настроек,
-    /// - хранение пулов,
-    /// - manual reservations,
-    /// - lease-таблица + таймеры.
-    /// </summary>
+    /// <summary>In-memory DHCP allocation, packet replies, and lease expiration.</summary>
     public sealed class DhcpService : BackgroundService, IDhcpService
     {
         private readonly object _lock = new();
@@ -38,13 +23,6 @@ namespace WANT.Service.Dhcp
         // Лизы в памяти
         private readonly ConcurrentDictionary<string, DhcpLease> _leases =
             new(StringComparer.OrdinalIgnoreCase);
-
-        public DhcpService()
-        {
-            // Можно задать какие-то дефолтные значения, если нужно.
-        }
-
-        // ───────────────── Глобальные настройки ─────────────────
 
         public DhcpGlobalSettings GetGlobalSettings()
         {
@@ -69,8 +47,6 @@ namespace WANT.Service.Dhcp
                 _settings.CleanupInterval = settings.CleanupInterval;
             }
         }
-
-        // ───────────────── Пулы ─────────────────
 
         public IReadOnlyCollection<DhcpPool> GetPools()
         {
@@ -135,8 +111,6 @@ namespace WANT.Service.Dhcp
             return removed;
         }
 
-        // ───────────────── Manual reservations ─────────────────
-
         public bool AddOrUpdateManualReservation(
             string poolId,
             PhysicalAddress mac,
@@ -175,8 +149,6 @@ namespace WANT.Service.Dhcp
             }
         }
 
-        // ───────────────── Leases ─────────────────
-
         public IReadOnlyCollection<DhcpLease> GetLeases()
         {
             return _leases.Values
@@ -198,17 +170,9 @@ namespace WANT.Service.Dhcp
                 .ToArray();
         }
 
-        // ───────────────── Обработка DHCP-пакетов ─────────────────
-
         /// <summary>
-        /// Здесь в будущем будет полноценная реализация DORA:
-        /// - разбор DHCP-пакета (Discover/Request/Release)
-        /// - выбор пула по интерфейсу
-        /// - выбор IP (manual/automatic/dynamic)
-        /// - формирование OFFER/ACK/NAK и отправка через PacketBridge.
-        /// 
-        /// Сейчас метод оставлен "заглушкой", чтобы всё собиралось,
-        /// а конфиг и контроллер уже можно было использовать.
+        /// Handles DISCOVER, REQUEST, and RELEASE on the pool's ingress interface.
+        /// Returns an OFFER or ACK frame for the packet bridge to inject.
         /// </summary>
         public EthernetPacket? HandleIncomingDhcpPacket(
             string ingressInterfaceId,
@@ -221,7 +185,7 @@ namespace WANT.Service.Dhcp
                 // Пытаемся взять DHCP-полезную нагрузку из UdpPacket
                 byte[]? raw = udp.PayloadData;
 
-                // В твоей версии PacketDotNet payload может быть не в PayloadData, а только в udp.Bytes
+                // Some PacketDotNet payloads are available only through serialized UDP bytes.
                 if (raw == null || raw.Length == 0)
                 {
                     var udpBytes = udp.Bytes; // заголовок UDP (8 байт) + payload
@@ -251,7 +215,6 @@ namespace WANT.Service.Dhcp
                         return null;
                     }
                 }
-    
 
                 // 1) Находим пул, связанный с этим интерфейсом
                 var pool = _pools.Values.FirstOrDefault(p =>
@@ -298,10 +261,9 @@ namespace WANT.Service.Dhcp
                         Console.WriteLine("[DHCP] RELEASE for unknown lease (ignored)");
                     }
 
-                    // На RELEASE по стандарту не отвечаем
+                    // RELEASE removes state without sending a reply.
                     return null;
                 }
-
 
                 // 4) Обработчик DISCOVER → OFFER
                 if (msgType == DhcpMessageType.Discover)
@@ -370,7 +332,6 @@ namespace WANT.Service.Dhcp
                     return reply;
                 }
 
-
                 // 5) Обработчик REQUEST → ACK
                 if (msgType == DhcpMessageType.Request)
                 {
@@ -402,7 +363,6 @@ namespace WANT.Service.Dhcp
                         return null;
                     }
 
-
                     // 3.1. Если это manual-резервация и включён MANUAL → разрешаем даже вне диапазона
                     bool isManualForThisMac =
                         pool.ManualEnabled &&
@@ -430,7 +390,7 @@ namespace WANT.Service.Dhcp
                     if (foreignLease != null)
                     {
                         Console.WriteLine($"[DHCP] REQUEST: IP {requestedIp} already leased to {foreignLease.MacAddress}, ignoring.");
-                        // здесь можно было бы слать NAK, но для проекта хватит ignore
+                        // Conflicting requests are ignored; this implementation does not send NAK.
                         return null;
                     }
 
@@ -459,8 +419,6 @@ namespace WANT.Service.Dhcp
                 return null;
             }
         }
-
-        // ───────────────── BackgroundService: чистка истёкших lease ─────────────────
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -499,10 +457,10 @@ namespace WANT.Service.Dhcp
             foreach (var kv in _leases.ToArray())
             {
                 var l = kv.Value;
-                if (l.AllocationType != DhcpAllocationType.Dynamic) 
+                if (l.AllocationType != DhcpAllocationType.Dynamic)
                     continue;
 
-                if (l.ExpiresAt is null) 
+                if (l.ExpiresAt is null)
                     continue;
 
                 if (l.ExpiresAt.Value <= now)
@@ -515,8 +473,6 @@ namespace WANT.Service.Dhcp
             if (removed > 0)
                 Console.WriteLine($"[DHCP] cleanup: removed {removed} expired leases");
         }
-
-        // ───────────────── Helpers: клоны ─────────────────
 
         private static DhcpPool ClonePool(DhcpPool p)
         {
@@ -553,8 +509,6 @@ namespace WANT.Service.Dhcp
                 ExpiresAt = l.ExpiresAt
             };
         }
-
-        // ───────────────── Публичный helper (пригодится позже, когда будешь делать DORA) ─────────────────
 
         /// <summary>
         /// Создать новый dynamic-lease (без реальной логики выбора IP).
@@ -603,7 +557,7 @@ namespace WANT.Service.Dhcp
                 used.Add(resIp);
 
             uint start = BitConverter.ToUInt32(pool.RangeStart.GetAddressBytes().Reverse().ToArray());
-            uint end   = BitConverter.ToUInt32(pool.RangeEnd.GetAddressBytes().Reverse().ToArray());
+            uint end = BitConverter.ToUInt32(pool.RangeEnd.GetAddressBytes().Reverse().ToArray());
 
             for (uint i = start; i <= end; i++)
             {
@@ -614,8 +568,6 @@ namespace WANT.Service.Dhcp
 
             return null;
         }
-
-
 
         private void CreateOrUpdateLease(
             DhcpPool pool,
@@ -683,9 +635,6 @@ namespace WANT.Service.Dhcp
             _leases[lease.Id] = lease;
         }
 
-
-
-
         private EthernetPacket BuildDhcpReply(
             DhcpMessageType type,
             EthernetPacket eth,
@@ -694,25 +643,24 @@ namespace WANT.Service.Dhcp
             DhcpPool pool,
             IPAddress offeredIp,
             string iface,
-            DhcpPacket dhcpReq)   // ← важный параметр
+            DhcpPacket dhcpReq)
         {
             // MAC сервера (наш MAC на этом интерфейсе)
             PacketBridgeWorker.TryGetNicMacStatic(iface, out var serverMac);
             var serverIp = pool.Gateway;
 
-
             bool isRenewAck =
                 type == DhcpMessageType.Ack &&
                 !dhcpReq.CiAddr.Equals(IPAddress.Any);
-            
+
             // Адрес назначения по умолчанию — broadcast
-            var dstIp  = (IPAddress)IPAddress.Broadcast;
+            var dstIp = (IPAddress)IPAddress.Broadcast;
             var dstMac = PacketBridgeWorker.BroadcastMac;
 
             if (isRenewAck)
             {
                 // Клиент уже живёт с этим IP → шлём unicast
-                dstIp  = offeredIp;                 // это тот же адрес, что и CiAddr
+                dstIp = offeredIp;                 // это тот же адрес, что и CiAddr
                 dstMac = eth.SourceHardwareAddress; // MAC клиента
                 Console.WriteLine($"[DHCP] using unicast ACK to {dstIp} ({dstMac})");
             }
@@ -776,9 +724,6 @@ namespace WANT.Service.Dhcp
             return ethOut;
         }
 
-
-
-
         private static ushort ComputeUdpChecksum(IPv4Packet ip, UdpPacket udp)
         {
             var src = ip.SourceAddress.GetAddressBytes();
@@ -815,18 +760,14 @@ namespace WANT.Service.Dhcp
             return result;
         }
 
-
-
-
-
         private static bool IsIpInPool(DhcpPool pool, IPAddress ip)
         {
             if (ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
                 return false;
 
-            var ipInt    = BitConverter.ToUInt32(ip.GetAddressBytes().Reverse().ToArray());
+            var ipInt = BitConverter.ToUInt32(ip.GetAddressBytes().Reverse().ToArray());
             var startInt = BitConverter.ToUInt32(pool.RangeStart.GetAddressBytes().Reverse().ToArray());
-            var endInt   = BitConverter.ToUInt32(pool.RangeEnd.GetAddressBytes().Reverse().ToArray());
+            var endInt = BitConverter.ToUInt32(pool.RangeEnd.GetAddressBytes().Reverse().ToArray());
 
             // проверка диапазона
             if (ipInt < startInt || ipInt > endInt)
@@ -834,13 +775,10 @@ namespace WANT.Service.Dhcp
 
             // проверка, что IP действительно в сети pool.Network/Mask
             var maskInt = BitConverter.ToUInt32(pool.Mask.GetAddressBytes().Reverse().ToArray());
-            var netInt  = BitConverter.ToUInt32(pool.Network.GetAddressBytes().Reverse().ToArray());
+            var netInt = BitConverter.ToUInt32(pool.Network.GetAddressBytes().Reverse().ToArray());
 
             return (ipInt & maskInt) == (netInt & maskInt);
         }
-
-
-
 
     }
 }

@@ -3,25 +3,25 @@ using System.Net;
 namespace WANT.Service.Routing
 {
     /// <summary>
-    /// Результат полного разрешения маршрута.
+    /// Resolved egress route and directly reachable ARP target.
     /// </summary>
     public class RoutingDecision
     {
         /// <summary>
-        /// Маршрут, который в итоге выбрали (последний в цепочке next-hop-ов).
+        /// Final direct route at the end of recursive next-hop resolution.
         /// </summary>
         public RouteEntry? Route { get; set; }
 
         /// <summary>
-        /// IP next-hop-а, по которому нужно сделать ARP.
-        /// - Для directly connected: это конечный IP назначения (host).
-        /// - Для статиков через next-hop: конечный IP соседа.
+        /// Address to resolve using ARP.
+        /// For a direct destination, this is the destination host.
+        /// For a recursive route, this is the final directly reachable neighbor.
         /// </summary>
         public IPAddress? NextHop { get; set; }
 
         /// <summary>
-        /// Исходящий интерфейс (GUID).
-        /// Берётся из Route.OutInterfaceName последнего маршрута в цепочке.
+        /// Egress interface GUID.
+        /// Taken from the final direct route, not the original recursive route.
         /// </summary>
         public string? OutInterfaceName => Route?.OutInterfaceName;
     }
@@ -29,7 +29,7 @@ namespace WANT.Service.Routing
     public interface IRoutingService
     {
         /// <summary>
-        /// Полное разрешение маршрута до конечного назначения с учётом цепочки next-hop-ов.
+        /// Resolve a destination through at most eight next-hop lookups.
         /// </summary>
         RoutingDecision Resolve(IPAddress finalDestination);
     }
@@ -56,27 +56,27 @@ namespace WANT.Service.Routing
                 var route = _routingTable.Lookup(currentTarget);
                 if (route == null)
                 {
-                    // ничего не нашли
+                    // A missing route at any recursion step invalidates the decision.
                     decision.Route = null;
                     decision.NextHop = null;
                     return decision;
                 }
 
-                // directly connected: дальше не идём
+                // A direct route terminates recursion.
                 if (route.NextHop == null || route.NextHop.Equals(IPAddress.None))
                 {
                     decision.Route = route;
-                    // ARP делаем по конечному IP (host-адресу)
+                    // Resolve the current target, which may be the original host or a neighbor.
                     decision.NextHop = currentTarget;
                     return decision;
                 }
 
-                // иначе: next-hop сам должен быть достижим – переходим на него
+                // Resolve the gateway recursively; its direct route determines egress.
                 decision.Route = route;
                 currentTarget = route.NextHop;
             }
 
-            // слишком длинная цепочка – считаем, что что-то не так
+            // Bound recursion to terminate cycles and overly long next-hop chains.
             decision.Route = null;
             decision.NextHop = null;
             return decision;

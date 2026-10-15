@@ -1,25 +1,18 @@
 #nullable enable
-using Microsoft.Extensions.Hosting;
-using SharpPcap;
-using System;
-using System.Collections;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;                       // IPAddress
-using System.Net.NetworkInformation;    // NetworkInterface, PhysicalAddress
-using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
-using WANT.Service.Interface;
-using WANT.Service.Routing;             // ✅ добавили
-using System.Net.Sockets;              // ← для AddressFamily
-using WANT.Service.Rip;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
+using System.Net;
+using PacketDotNet;
+using SharpPcap;
 using WANT.Service.Dhcp;
+using WANT.Service.Interface;
+using WANT.Service.Rip;
+using WANT.Service.Routing;
 
 
 
-using PacketDotNet;                     // ArpPacket, ArpOperation, EthernetPacket, EthernetType, IPv4Packet
+
 
 namespace WANT.Service.Packets
 {
@@ -35,7 +28,7 @@ namespace WANT.Service.Packets
         private readonly InterfaceScanner _store;
         private readonly ArpCache _arpCache;
         private readonly IRoutingService _routingService;
-        private readonly IRipService _ripService;   // ✅ добавили
+        private readonly IRipService _ripService;
 
         private readonly IDhcpService _dhcpService;
 
@@ -48,7 +41,6 @@ namespace WANT.Service.Packets
         public bool TryGetDevice(string nicId, out ICaptureDevice dev)
             => _opened.TryGetValue(nicId, out dev!);
 
-
         // включён ли Proxy ARP на интерфейсе (GUID без скобок, Upper)
         private readonly ConcurrentDictionary<string, bool> _proxyArpEnabled =
             new(StringComparer.OrdinalIgnoreCase);
@@ -58,7 +50,7 @@ namespace WANT.Service.Packets
             ArpCache arpCache,
             IRoutingService routingService,
             IRipService ripService,
-            IDhcpService dhcpService)          // ✅ ДОБАВИЛСЯ параметр
+            IDhcpService dhcpService)
         {
             _store = store;
             _arpCache = arpCache;
@@ -75,8 +67,6 @@ namespace WANT.Service.Packets
                 _proxyArpEnabled.TryAdd(id, true);
             }
         }
-
-
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -143,7 +133,6 @@ namespace WANT.Service.Packets
             {
                 dev.Open(DeviceModes.Promiscuous, read_timeout: 1000);
 
-                // ✅ слушаем и ARP, и IPv4
                 dev.Filter = "arp or ip";
 
                 dev.OnPacketArrival += Device_OnPacketArrival;
@@ -197,8 +186,6 @@ namespace WANT.Service.Packets
             }
         }
 
-        // ====================== ARP (OWN + PROXY) ======================
-
         private void HandleArpPacket(Packet packet, EthernetPacket eth, string ingressGuid, ICaptureDevice? dev)
         {
             var arp = packet.Extract<ArpPacket>();
@@ -210,15 +197,15 @@ namespace WANT.Service.Packets
                 var senderIp = arp.SenderProtocolAddress;
                 var senderMac = arp.SenderHardwareAddress ?? eth.SourceHardwareAddress;
 
-                if (TryGetNicMac_FromSystem(ingressGuid, out var ourMacSub) &&
+                if (TryGetNicMacStatic(ingressGuid, out var ourMacSub) &&
                     senderMac != null && senderMac.Equals(ourMacSub))
                     return;
 
-                if (TryGetNicIpsV4_FromStore(ingressGuid, out var ourIpsSub) &&
+                if (TryGetInterfaceAddresses(ingressGuid, out var ourIpsSub) &&
                     senderIp != null && ourIpsSub.Contains(senderIp))
                     return;
 
-                if (IsValidHostIp(senderIp) && senderMac != null && !senderMac.Equals(PhysicalAddress.None))
+                if (senderIp is not null && IsValidHostIp(senderIp) && senderMac != null && !senderMac.Equals(PhysicalAddress.None))
                 {
                     _arpCache.Learn(senderIp, senderMac, ingressGuid);
                 }
@@ -234,12 +221,12 @@ namespace WANT.Service.Packets
             Console.WriteLine($"[PacketBridge][ARP] request {arp.SenderProtocolAddress} is asking about {targetIp} on {ingressGuid}");
 
             // Наш MAC на этом интерфейсе
-            if (!TryGetNicMac_FromSystem(ingressGuid, out var ourMac))
+            if (!TryGetNicMacStatic(ingressGuid, out var ourMac))
                 return;
 
             // MAC и IP спрашивающего
             var requesterMac = arp.SenderHardwareAddress ?? eth.SourceHardwareAddress;
-            var requesterIp  = arp.SenderProtocolAddress;
+            var requesterIp = arp.SenderProtocolAddress;
 
             if (requesterMac is null || requesterMac.Equals(PhysicalAddress.None)) return;
 
@@ -249,7 +236,7 @@ namespace WANT.Service.Packets
 
             // ---- 2.1: обычный ARP — IP действительно наш на этом интерфейсе ----
             bool weOwnTarget =
-                TryGetNicIpsV4_FromStore(ingressGuid, out var ourIps) &&
+                TryGetInterfaceAddresses(ingressGuid, out var ourIps) &&
                 ourIps.Contains(targetIp);
 
             // Флаг Proxy ARP с учётом настройки (по умолчанию true)
@@ -313,9 +300,6 @@ namespace WANT.Service.Packets
             }
         }
 
-
-        // ====================== IPv4 ROUTING ======================
-
         private void HandleIPv4Packet(Packet packet, EthernetPacket eth, string ingressGuid, ICaptureDevice? dev)
         {
             var ip = packet.Extract<IPv4Packet>();
@@ -352,9 +336,8 @@ namespace WANT.Service.Packets
                 }
             }
 
-
-            // 🔥 Фильтр: игнорируем пакеты, которые мы сами отправили с этого интерфейса
-            if (TryGetNicMac_FromSystem(ingressGuid, out var ourMacIn) &&
+            // Ignore frames injected by this router on the ingress interface.
+            if (TryGetNicMacStatic(ingressGuid, out var ourMacIn) &&
                 eth.SourceHardwareAddress != null &&
                 eth.SourceHardwareAddress.Equals(ourMacIn))
             {
@@ -364,7 +347,7 @@ namespace WANT.Service.Packets
             var dst = ip.DestinationAddress;
             var src = ip.SourceAddress;
 
-            // Broadcast, multicast и прочее пока не маршрутизируем
+            // Forward unicast traffic only; control protocols are handled separately.
             if (dst.Equals(IPAddress.Broadcast)) return;
             var firstOctet = dst.GetAddressBytes()[0];
             if (firstOctet >= 224 && firstOctet <= 239) return; // multicast
@@ -375,7 +358,7 @@ namespace WANT.Service.Packets
                 return;
             }
 
-            // Пакет к самому роутеру – пока игнорим
+            // There is no general-purpose local IP stack in this forwarding worker.
             if (IsOurIp(dst))
             {
                 Console.WriteLine($"[IPv4] packet to router itself {dst}, ignore for now");
@@ -412,7 +395,7 @@ namespace WANT.Service.Packets
             }
 
             // ---- 4) Наш MAC на выходном интерфейсе ----
-            if (!TryGetNicMac_FromSystem(egressGuid, out var ourMacOut))
+            if (!TryGetNicMacStatic(egressGuid, out var ourMacOut))
                 return;
 
             // ---- 5) Собираем новый Ethernet-фрейм ----
@@ -435,10 +418,6 @@ namespace WANT.Service.Packets
                 Console.WriteLine($"[IPv4][ROUTE] device {egressGuid} not injectable");
             }
         }
-
-
-
-        // ====================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ======================
 
         private string? FindIngressGuidByDevice(ICaptureDevice? dev)
         {
@@ -471,24 +450,11 @@ namespace WANT.Service.Packets
         /// <summary>
         /// MAC берём из ОС по GUID (Windows: NetworkInterface.Id == GUID без скобок).
         /// </summary>
-        private bool TryGetNicMac_FromSystem(string guidUpper, out PhysicalAddress mac)
-        {
-            mac = PhysicalAddress.None;
-            var ni = NetworkInterface.GetAllNetworkInterfaces()
-                .FirstOrDefault(n =>
-                    n.NetworkInterfaceType == NetworkInterfaceType.Ethernet &&
-                    string.Equals(n.Id.Trim('{', '}').ToUpperInvariant(), guidUpper, StringComparison.OrdinalIgnoreCase));
-
-            if (ni is null) return false;
-
-            mac = ni.GetPhysicalAddress();
-            return mac != null && !mac.Equals(PhysicalAddress.None);
-        }
 
         /// <summary>
-        /// IPv4 адреса берём из ТВОЕГО стора (_store), т.к. их задаёт пользователь через REST API.
+        /// Read addresses configured through the API, rather than OS IP configuration.
         /// </summary>
-        private bool TryGetNicIpsV4_FromStore(string guidUpper, out HashSet<IPAddress> ips)
+        private bool TryGetInterfaceAddresses(string guidUpper, out HashSet<IPAddress> ips)
         {
             ips = new HashSet<IPAddress>();
 
@@ -504,55 +470,12 @@ namespace WANT.Service.Packets
                 return false;
             }
 
-            // Достаём значение свойства IP у объекта NetInterface
-            string? ipStr = null;
-            try
-            {
-                var prop = ni.GetType().GetProperty("IP", BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                if (prop != null)
-                {
-                    ipStr = prop.GetValue(ni)?.ToString();
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ARP] Error reading IP property: {ex.Message}");
-            }
-
-            if (!string.IsNullOrWhiteSpace(ipStr) && IPAddress.TryParse(ipStr, out var ip))
-            {
-                ips.Add(ip);
-                Console.WriteLine($"[ARP] Interface {guidUpper}: found IP {ip}");
-            }
-            else
-            {
-                Console.WriteLine($"[ARP] Interface {guidUpper}: no IPv4 addresses found (IP='{ipStr ?? "null"}')");
-            }
+            // Addresses are configured in the router model, independently of the OS.
+            if (ni.Ip is not null)
+                ips.Add(ni.Ip);
 
             return ips.Count > 0;
         }
-
-        // -------- helper extractors (reflection-friendly, без знания точного типа NetInterface) --------
-
-        private static void TryPullIPv4FromStringProperty(object obj, string[] propNames, HashSet<IPAddress> sink)
-        {
-            foreach (var name in propNames)
-            {
-                var p = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                if (p is null) continue;
-
-                if (p.PropertyType == typeof(string))
-                {
-                    var val = p.GetValue(obj) as string;
-                    if (!string.IsNullOrWhiteSpace(val) && IPAddress.TryParse(val, out var ip)
-                        && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                    {
-                        sink.Add(ip);
-                    }
-                }
-            }
-        }
-
 
         private void TrySendArpRequest(string egressGuid, IPAddress targetIp)
         {
@@ -561,13 +484,13 @@ namespace WANT.Service.Packets
                 if (targetIp.AddressFamily != AddressFamily.InterNetwork)
                     return;
 
-                if (!TryGetNicMac_FromSystem(egressGuid, out var ourMac))
+                if (!TryGetNicMacStatic(egressGuid, out var ourMac))
                 {
                     Console.WriteLine($"[ARP][REQ] no MAC for {egressGuid}");
                     return;
                 }
 
-                if (!TryGetNicIpsV4_FromStore(egressGuid, out var ips) || ips.Count == 0)
+                if (!TryGetInterfaceAddresses(egressGuid, out var ips) || ips.Count == 0)
                 {
                     Console.WriteLine($"[ARP][REQ] no IPv4 on {egressGuid}");
                     return;
@@ -575,10 +498,9 @@ namespace WANT.Service.Packets
 
                 var ourIp = ips.First();
 
-                // 🔽 ВОТ ЗДЕСЬ БЫЛ ТВОЙ new ArpPacket(...) — МЕНЯЕМ НА ВЫЗОВ ЛОКАЛЬНОЙ ФУНКЦИИ
                 if (_opened.TryGetValue(egressGuid, out var dev) && dev is IInjectionDevice inj)
                 {
-                    SendArpRequest_Local(inj, ourMac, ourIp, targetIp);
+                    Server.Services.Packets.ArpTools.SendArpRequest(inj, ourMac, ourIp, targetIp);
                     Console.WriteLine($"[ARP][REQ] (LOCAL) who-has {targetIp} tell {ourIp} on {egressGuid}");
                 }
                 else
@@ -592,113 +514,6 @@ namespace WANT.Service.Packets
             }
         }
 
-
-
-        private static void TryPullIPv4FromEnumerableOfStrings(object obj, string[] propNames, HashSet<IPAddress> sink)
-        {
-            foreach (var name in propNames)
-            {
-                var p = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                if (p is null) continue;
-
-                var val = p.GetValue(obj);
-                if (val is IEnumerable en && val is not string)
-                {
-                    foreach (var item in en)
-                    {
-                        if (item is string s &&
-                            IPAddress.TryParse(s, out var ip) &&
-                            ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                        {
-                            sink.Add(ip);
-                        }
-                    }
-                }
-            }
-        }
-
-        private static void TryPullIPv4FromEnumerableOfObjects(object obj, string[] propNames, HashSet<IPAddress> sink)
-        {
-            foreach (var name in propNames)
-            {
-                var p = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                if (p is null) continue;
-
-                var val = p.GetValue(obj);
-                if (val is IEnumerable en && val is not string)
-                {
-                    foreach (var item in en)
-                    {
-                        if (item is null) continue;
-
-                        var strIp = GetStringProperty(item, new[] { "IP", "Ip", "Address", "Addr", "IPv4", "Ipv4" });
-                        if (!string.IsNullOrWhiteSpace(strIp) &&
-                            IPAddress.TryParse(strIp, out var ip) &&
-                            ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                        {
-                            sink.Add(ip);
-                        }
-                    }
-                }
-            }
-        }
-
-        private void DumpStore()
-        {
-            Console.WriteLine("========== [STORE DUMP] ==========");
-            var all = _store.GetAll();
-            int i = 0;
-
-            foreach (var ni in all)
-            {
-                Console.WriteLine($"--- Interface #{++i} ---");
-                Console.WriteLine($"Guid:     {ni.Guid}");
-                Console.WriteLine($"UserName: {ni.UserName}");
-                Console.WriteLine($"Type:     {ni.Type}");
-                Console.WriteLine($"Status:   {ni.Status}");
-                Console.WriteLine($"MAC:      {ni.Mac}");
-                Console.WriteLine($"IP:       {ni.Ip}");
-                Console.WriteLine($"Mask:     {ni.Mask}");
-                Console.WriteLine($"Desc:     {ni.Description}");
-
-                try
-                {
-                    var prop = ni.GetType().GetProperty("Addresses");
-                    if (prop != null)
-                    {
-                        var val = prop.GetValue(ni);
-                        if (val is IEnumerable<string> list)
-                            Console.WriteLine($"Addresses: {string.Join(", ", list)}");
-                        else if (val is IEnumerable en)
-                        {
-                            Console.WriteLine("Addresses:");
-                            foreach (var item in en)
-                                Console.WriteLine("  - " + item);
-                        }
-                    }
-                }
-                catch { }
-
-                Console.WriteLine();
-            }
-
-            Console.WriteLine("=================================");
-        }
-
-        private static string? GetStringProperty(object obj, string[] propNames)
-        {
-            foreach (var name in propNames)
-            {
-                var p = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                if (p is null) continue;
-                if (p.PropertyType == typeof(string))
-                {
-                    return p.GetValue(obj) as string;
-                }
-            }
-            return null;
-        }
-
         private static bool IsValidHostIp(IPAddress? ip)
         {
             if (ip is null) return false;
@@ -708,35 +523,8 @@ namespace WANT.Service.Packets
             return true;
         }
 
-
-        private void SendArpRequest_Local(
-            IInjectionDevice dev,
-            PhysicalAddress srcMac,
-            IPAddress srcIp,
-            IPAddress targetIp)
-        {
-            var eth = new EthernetPacket(
-                srcMac,
-                PhysicalAddress.Parse("FF-FF-FF-FF-FF-FF"),
-                EthernetType.Arp);
-
-            var arp = new ArpPacket(
-                ArpOperation.Request,
-                PhysicalAddress.Parse("00-00-00-00-00-00"), // THA
-                targetIp,                                   // TPA
-                srcMac,                                     // SHA
-                srcIp                                       // SPA
-            );
-
-            eth.PayloadPacket = arp;
-            dev.SendPacket(eth);
-        }
-
-        // уже есть: private bool TryGetNicMac_FromSystem(string guidUpper, out PhysicalAddress mac)
-
         public static bool TryGetNicMacStatic(string guidUpper, out PhysicalAddress mac)
         {
-            // можно просто продублировать ту же логику, что и в TryGetNicMac_FromSystem
             mac = PhysicalAddress.None;
             var ni = NetworkInterface.GetAllNetworkInterfaces()
                 .FirstOrDefault(n =>
@@ -748,10 +536,6 @@ namespace WANT.Service.Packets
             mac = ni.GetPhysicalAddress();
             return mac != null && !mac.Equals(PhysicalAddress.None);
         }
-
-
-
-
 
         /// <summary>
         /// Включить/выключить Proxy ARP на интерфейсе (GUID / имя из UI).
@@ -788,8 +572,6 @@ namespace WANT.Service.Packets
                 .AsReadOnly();
         }
 
-
-
     }
-    
+
 }
